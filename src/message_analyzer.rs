@@ -1,13 +1,13 @@
 use log::log;
 
 
-pub fn score_message(message: &str) -> f32 {
+pub fn score_message(message: &str) -> i32 {
     let mut score = 0.0;
     for word in message.split_whitespace() {
         let word_score = score_word(word);
         score += word_score;
     }
-    score
+    score.round() as i32
 }
 
 pub fn score_word(word: &str) -> f32 {
