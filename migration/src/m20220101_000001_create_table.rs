@@ -81,6 +81,7 @@ enum Channels {
 enum Users {
     Table,
     Id,
+    Name,
     Snowflake,
     MessageCount,
     Score,
@@ -188,8 +189,8 @@ impl MigrationTrait for Migration {
                 .foreign_key(
                     ForeignKey::create()
                         .name("channels_guilds")
-                        .from(Guilds::Table, Guilds::Id)
-                        .to(Channels::Table, Channels::Guild)
+                        .to(Guilds::Table, Guilds::Id)
+                        .from(Channels::Table, Channels::Guild)
                         .on_delete(ForeignKeyAction::Cascade)
                         .on_update(ForeignKeyAction::Cascade),
                 )
@@ -216,6 +217,11 @@ impl MigrationTrait for Migration {
                         .not_null(),
                 )
                 .col(
+                    ColumnDef::new(Users::Name)
+                        .text()
+                        .not_null(),
+                )
+                .col(
                     ColumnDef::new(Users::MessageCount)
                         .integer()
                         .not_null(),
@@ -233,8 +239,8 @@ impl MigrationTrait for Migration {
                 .foreign_key(
                     ForeignKey::create()
                         .name("users_guilds")
-                        .from(Guilds::Table, Guilds::Id)
-                        .to(Users::Table, Users::Guild)
+                        .to(Guilds::Table, Guilds::Id)
+                        .from(Users::Table, Users::Guild)
                         .on_delete(ForeignKeyAction::Cascade)
                         .on_update(ForeignKeyAction::Cascade),
                 )
@@ -286,24 +292,24 @@ impl MigrationTrait for Migration {
                 .foreign_key(
                     ForeignKey::create()
                         .name("messages_messages")
-                        .from(Messages::Table, Messages::Id)
-                        .to(Messages::Table, Messages::ReplysTo)
+                        .to(Messages::Table, Messages::Id)
+                        .from(Messages::Table, Messages::ReplysTo)
                         .on_delete(ForeignKeyAction::Cascade)
                         .on_update(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("messages_channels")
-                        .from(Channels::Table, Channels::Id)
-                        .to(Messages::Table, Messages::Channel)
+                        .to(Channels::Table, Channels::Id)
+                        .from(Messages::Table, Messages::Channel)
                         .on_delete(ForeignKeyAction::Cascade)
                         .on_update(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("messages_users")
-                        .from(Users::Table, Users::Id)
-                        .to(Messages::Table, Messages::User)
+                        .to(Users::Table, Users::Id)
+                        .from(Messages::Table, Messages::User)
                         .on_delete(ForeignKeyAction::Cascade)
                         .on_update(ForeignKeyAction::Cascade),
                 )

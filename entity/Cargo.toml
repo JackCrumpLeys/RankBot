@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 sea-orm = { version = "0.10.6" }
+serde = { version = "1.0.152", features = ["derive"] }
