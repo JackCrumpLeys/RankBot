@@ -12,10 +12,10 @@ pub fn score_message(message: &str) -> i32 {
 pub fn score_word(word: &str) -> f32 {
     let mut score = 0.0;
     let mut word = word.to_lowercase();
-    if word.ends_with(".") || word.ends_with(",") {
+    if word.ends_with('.') || word.ends_with(',') {
         word = word[..word.len() - 1].to_string();
     }
-    if word.ends_with("!") || word.ends_with("?") {
+    if word.ends_with('!') || word.ends_with('?') {
         word = word[..word.len() - 1].to_string();
         score += 1.0;
     }

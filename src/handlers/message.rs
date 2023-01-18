@@ -135,7 +135,7 @@ pub async fn handle_message(
         score: Set(score_message(&msg.content)),
         user: Set(user.id),
         channel: Set(channel.id),
-        replys_to: { Set(find_reply_to(&data.db, &_ctx, &msg, channel, user).await?) },
+        replys_to: { Set(find_reply_to(&data.db, _ctx, msg, channel, user).await?) },
     };
 
     message.save(&data.db).await?;

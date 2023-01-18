@@ -1,21 +1,3 @@
-// use crate::db::{
-//     add_user, get_connection, get_user_from_id, store_message, RankChannel, RankGuild, RankMessage,
-//     RankUser, DB,
-// };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 use env_file_reader::read_file;
 use log::{debug, LevelFilter};
 use migration::{Migrator, MigratorTrait};
@@ -23,7 +5,7 @@ use poise::serenity_prelude as serenity;
 
 
 use sea_orm::{
-    ActiveModelTrait, ConnectOptions, Database, DatabaseConnection, EntityTrait,
+    ConnectOptions, Database, DatabaseConnection,
 };
 
 
@@ -40,14 +22,6 @@ use tokio::time::Instant;
 mod db;
 mod handlers;
 mod message_analyzer;
-
-struct Handler;
-
-struct ConnectionContainer;
-
-// impl serenity::TypeMapKey for ConnectionContainer {
-//     type Value = Connection;
-// }
 
 pub struct Data {
     db: DatabaseConnection,
@@ -84,7 +58,7 @@ async fn event_event_handler(
             );
         }
         poise::Event::Message { new_message: msg } => {
-            handlers::message::handle_message(_ctx, &data, &msg)
+            handlers::message::handle_message(_ctx, data, msg)
                 .await
                 .expect("Failed to handle message");
         }
