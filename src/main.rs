@@ -2,38 +2,37 @@
 //     add_user, get_connection, get_user_from_id, store_message, RankChannel, RankGuild, RankMessage,
 //     RankUser, DB,
 // };
-use crate::message_analyzer::score_message;
-use crate::serenity::model::prelude::Message;
-use async_recursion::async_recursion;
-use entity::channels::ActiveModel as ChannelActiveModel;
-use entity::guilds;
-use entity::guilds::ActiveModel as GuildActiveModel;
-use entity::messages::ActiveModel as MessageActiveModel;
-use entity::prelude::Channels as ChannelsEntity;
-use entity::prelude::Guilds as GuildsEntity;
-use entity::prelude::Messages as MessagesEntity;
-use entity::prelude::{Guilds, Messages, Users as UsersEntity};
-use entity::users;
-use entity::users::ActiveModel as UserActiveModel;
-use entity::{channels, messages};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 use env_file_reader::read_file;
-use log::{debug, error, LevelFilter};
+use log::{debug, LevelFilter};
 use migration::{Migrator, MigratorTrait};
 use poise::serenity_prelude as serenity;
-use sea_orm::ActiveValue::{Set, Unchanged};
-use sea_orm::ColumnTrait;
+
+
 use sea_orm::{
-    ActiveModelTrait, ConnectOptions, Database, DatabaseConnection, EntityTrait, IntoActiveModel,
-    NotSet, QueryFilter, TryIntoModel,
+    ActiveModelTrait, ConnectOptions, Database, DatabaseConnection, EntityTrait,
 };
-use std::borrow::BorrowMut;
-use std::fs;
-use std::fs::File;
-use std::future::Future;
-use std::ops::Deref;
-use std::path::Path;
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+
+
+
+
+
+
+
+
 use std::time::Duration;
 use tokio::time::Instant;
 // use tokio_rusqlite::Connection;
@@ -111,7 +110,7 @@ async fn age(
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let formatted_time = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
-    let mut info_logger = fern::Dispatch::new()
+    let info_logger = fern::Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
                 "{}[{}][{}] {}",
@@ -123,7 +122,7 @@ async fn main() -> Result<(), Error> {
         })
         .level(LevelFilter::Info)
         .chain(fern::log_file(format!("log/info_{}.log", formatted_time))?);
-    let mut debug_logger = fern::Dispatch::new()
+    let debug_logger = fern::Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
                 "{}[{}][{}] {}",

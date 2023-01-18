@@ -1,38 +1,38 @@
 use crate::message_analyzer::score_message;
 use crate::serenity::model::prelude::Message;
-use crate::{Context, Data, Error};
+use crate::{Data, Error};
 use async_recursion::async_recursion;
 use entity::channels::ActiveModel as ChannelActiveModel;
 use entity::guilds;
-use entity::guilds::ActiveModel as GuildActiveModel;
+
 use entity::messages::ActiveModel as MessageActiveModel;
 use entity::prelude::Channels as ChannelsEntity;
-use entity::prelude::Guilds as GuildsEntity;
-use entity::prelude::Messages as MessagesEntity;
+
+
 use entity::prelude::{Guilds, Messages, Users as UsersEntity};
 use entity::users;
 use entity::users::ActiveModel as UserActiveModel;
 use entity::{channels, messages};
-use env_file_reader::read_file;
-use log::{debug, error, LevelFilter};
-use migration::{Migrator, MigratorTrait};
+
+use log::{error};
+
 use poise::serenity_prelude as serenity;
-use sea_orm::ActiveValue::{Set, Unchanged};
+use sea_orm::ActiveValue::{Set};
 use sea_orm::ColumnTrait;
 use sea_orm::{
-    ActiveModelTrait, ConnectOptions, Database, DatabaseConnection, EntityTrait, IntoActiveModel,
+    ActiveModelTrait, DatabaseConnection, EntityTrait, IntoActiveModel,
     NotSet, QueryFilter, TryIntoModel,
 };
-use std::borrow::BorrowMut;
-use std::fs;
-use std::fs::File;
-use std::future::Future;
+
+
+
+
 use std::ops::Deref;
-use std::path::Path;
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use tokio::time::Instant;
+
+
+
+
+
 
 pub async fn handle_message(
     _ctx: &serenity::Context,
@@ -64,7 +64,7 @@ pub async fn handle_message(
         .one(&data.db)
         .await?
     {
-        Some(mut g) => {
+        Some(g) => {
             let mut g = g.into_active_model();
             g.score = Set(score_message(&msg.content) + g.score.unwrap());
             g.message_count = Set(g.message_count.unwrap() + 1);
@@ -160,7 +160,7 @@ async fn find_reply_to(
         None => {
             match msg.message_reference {
                 Some(ref r) => match r.message_id {
-                    Some(msg_id) => {
+                    Some(_msg_id) => {
                         match ctx
                             .http
                             .get_message(r.channel_id.0, r.message_id.unwrap().0)
