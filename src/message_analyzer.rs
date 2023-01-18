@@ -1,6 +1,5 @@
 use log::log;
 
-
 pub fn score_message(message: &str) -> i32 {
     let mut score = 0.0;
     for word in message.split_whitespace() {
@@ -30,13 +29,14 @@ pub fn score_word(word: &str) -> f32 {
         let char_score = score_char(c);
         score += char_score;
     }
-    score/word.len() as f32
+    score / word.len() as f32
 }
 
 pub fn score_char(c: char) -> f32 {
     match c {
         'a' | 'e' | 'i' | 'o' | 'u' | 'y' => 1.0,
-        'b' | 'c' | 'd' | 'f' | 'g' | 'h' | 'j' | 'k' | 'l' | 'm' | 'n' | 'p' | 'q' | 'r' | 's' | 't' | 'v' | 'w' | 'x' | 'z' => 0.5,
-        _ => 0.0
+        'b' | 'c' | 'd' | 'f' | 'g' | 'h' | 'j' | 'k' | 'l' | 'm' | 'n' | 'p' | 'q' | 'r' | 's'
+        | 't' | 'v' | 'w' | 'x' | 'z' => 0.5,
+        _ => 0.0,
     }
 }
