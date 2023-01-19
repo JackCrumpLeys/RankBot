@@ -1,12 +1,12 @@
-use tokio::time::Instant;
-use log::debug;
+use crate::handlers::message::handle_message;
+use crate::{Context, Error};
 use futures::future;
+use indicatif::ProgressBar;
+use log::debug;
+use serenity::http::CacheHttp;
 use serenity::model::channel::Message;
 use std::sync::Arc;
-use indicatif::ProgressBar;
-use serenity::http::CacheHttp;
-use crate::{Context, Error};
-use crate::handlers::message::handle_message;
+use tokio::time::Instant;
 
 /// Loads messages fom server onto the database
 #[poise::command(slash_command)]
@@ -26,22 +26,26 @@ pub async fn load_messages(
 
     let channel_tasks: Vec<_> = channels
         .iter()
-        .map(|(k,v)| {
-            v.clone()// get values
+        .map(|(k, v)| {
+            v.clone() // get values
         })
         .map(move |channel| {
             let http = http.clone();
             tokio::spawn(async move {
                 let channel = channel.clone();
-                let mut messages = channel.messages(&http, |retriever| {
-                    retriever.limit(u64::MAX)
-                }).await?;
+                let mut messages = channel
+                    .messages(&http, |retriever| retriever.limit(u64::MAX))
+                    .await?;
                 let mut last_message_count = messages.len();
                 while last_message_count % 100 == 0 && last_message_count > 0 {
                     let last_message = messages.last().unwrap();
-                    messages.append(&mut channel.messages(&http, |retriever| {
-                        retriever.before(last_message.id).limit(u64::MAX)
-                    }).await?);
+                    messages.append(
+                        &mut channel
+                            .messages(&http, |retriever| {
+                                retriever.before(last_message.id).limit(u64::MAX)
+                            })
+                            .await?,
+                    );
                     last_message_count = messages.len();
                 }
                 debug!("Loaded {} messages from {}", messages.len(), channel.name);
@@ -52,9 +56,9 @@ pub async fn load_messages(
 
     let mut message = future::join_all(channel_tasks).await;
 
-
-    let mut messages = message.iter().map(|m| {
-        match m {
+    let mut messages = message
+        .iter()
+        .map(|m| match m {
             Ok(m) => match m {
                 Ok(m) => m.to_vec(),
                 Err(e) => {
@@ -66,28 +70,25 @@ pub async fn load_messages(
                 debug!("Error loading messages: {}", e);
                 Vec::new()
             }
-        }
-    }).flatten().collect::<Vec<Message>>();
+        })
+        .flatten()
+        .collect::<Vec<Message>>();
 
     let mut cache = ctx.serenity_context().cache.clone();
     let mut http = ctx.serenity_context().http.clone();
     let mut data = ctx.data().clone();
     let pb = Arc::new(ProgressBar::new(messages.len() as u64).clone());
 
-    let message_tasks: Vec<_> =
-        messages
+    let message_tasks: Vec<_> = messages
         .iter()
-        .map(|m| {
-            m.clone()
-        })
+        .map(|m| m.clone())
         .map(|message| {
             let http = http.clone();
             let cache = cache.clone();
             let data = data.clone();
             let pb = pb.clone();
             tokio::spawn(async move {
-                handle_message(&http, &data, &message, Some(guild.id), &cache, false)
-                    .await?;
+                handle_message(&http, &data, &message, Some(guild.id), &cache, false).await?;
                 pb.inc(1);
 
                 Ok::<(), Error>(())
@@ -105,6 +106,7 @@ pub async fn load_messages(
             channels.len(),
             timer.elapsed()
         ))
-    }).await?;
+    })
+    .await?;
     Ok(())
 }

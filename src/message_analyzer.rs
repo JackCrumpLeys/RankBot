@@ -1,5 +1,3 @@
-
-
 pub fn score_message(message: &str) -> i32 {
     let mut score = 0.0;
     for word in message.split_whitespace() {

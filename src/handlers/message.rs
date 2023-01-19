@@ -8,30 +8,25 @@ use entity::{channels, guilds, users};
 use entity::messages::ActiveModel as MessageActiveModel;
 use entity::prelude::Channels as ChannelsEntity;
 
-
+use entity::messages;
 use entity::prelude::{Guilds, Messages, Users as UsersEntity};
 use entity::users::ActiveModel as UserActiveModel;
-use entity::{messages};
 
 use log::{debug, error, trace, warn};
 
 use poise::{serenity_prelude as serenity, serenity_prelude};
-use sea_orm::ActiveValue::{Set};
+use sea_orm::ActiveValue::Set;
 use sea_orm::ColumnTrait;
 use sea_orm::{
-    ActiveModelTrait, DatabaseConnection, EntityTrait, IntoActiveModel,
-    NotSet, QueryFilter, TryIntoModel,
+    ActiveModelTrait, DatabaseConnection, EntityTrait, IntoActiveModel, NotSet, QueryFilter,
+    TryIntoModel,
 };
 
-
-
-
+use crate::serenity::cache::Cache;
+use crate::serenity::model::id::GuildId;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Instant;
-use crate::serenity::cache::Cache;
-use crate::serenity::model::id::GuildId;
-
 
 pub async fn handle_message(
     http: &Arc<serenity::Http>,
@@ -45,17 +40,14 @@ pub async fn handle_message(
     trace!("Handling message: {:?}", msg);
     let guild_id = match guild_id {
         Some(guild_id) => guild_id,
-        None => {
-            match msg.guild_id {
-                Some(guild_id) => guild_id,
-                None => {
-                    warn!("Message is not in a guild, ignoring");
-                    return Ok(());
-                }
+        None => match msg.guild_id {
+            Some(guild_id) => guild_id,
+            None => {
+                warn!("Message is not in a guild, ignoring");
+                return Ok(());
             }
-        }
+        },
     };
-
 
     let guild_name = match msg.guild(&cache) {
         Some(g) => g.name,
@@ -65,17 +57,16 @@ pub async fn handle_message(
         serenity::Channel::Guild(c) => c.name,
         _ => "DM".to_string(),
     };
-    if log{
-
+    if log {
         log::info!(
-        "[message] [{}:{}] [{}:{}] {}: {}",
-        guild_id.0,
-        guild_name,
-        msg.channel_id,
-        channel_name,
-        msg.author.name,
-        msg.content
-    );
+            "[message] [{}:{}] [{}:{}] {}: {}",
+            guild_id.0,
+            guild_name,
+            msg.channel_id,
+            channel_name,
+            msg.author.name,
+            msg.content
+        );
     }
     let guild = match Guilds::find()
         .filter(guilds::Column::Snowflake.eq(guild_id.0))
@@ -176,44 +167,44 @@ async fn find_reply_to(
         .await?
     {
         Some(msg) => Ok(Some(msg.id)),
-        None => {
-            match msg.message_reference {
-                Some(ref r) => match r.message_id {
-                    Some(_msg_id) => {
-                        match http
-                            .get_message(r.channel_id.0, r.message_id.unwrap().0)
-                            .await
-                        {
-                            Ok(m) => {
-                                let message = MessageActiveModel {
-                                    id: NotSet,
-                                    snowflake: Set(m.id.0 as i64),
-                                    content: Set(m.content.clone()),
-                                    score: Set(score_message(&m.content)),
-                                    user: Set(user.id),
-                                    channel: Set(channel.id),
-                                    replys_to: Set(find_reply_to(db, &m, channel, user, http).await?),
-                                };
-                                let db_msg = message.insert(db).await?;
-                                Ok(Some(db_msg.id))
-                            }
-                            _ => {
-                                error!(
-                                    "Could not find message that was replied to from message {}",
-                                    msg.id.0
-                                );
-                                Ok(None)
-                            }
+        None => match msg.message_reference {
+            Some(ref r) => match r.message_id {
+                Some(_msg_id) => {
+                    match http
+                        .get_message(r.channel_id.0, r.message_id.unwrap().0)
+                        .await
+                    {
+                        Ok(m) => {
+                            let message = MessageActiveModel {
+                                id: NotSet,
+                                snowflake: Set(m.id.0 as i64),
+                                content: Set(m.content.clone()),
+                                score: Set(score_message(&m.content)),
+                                user: Set(user.id),
+                                channel: Set(channel.id),
+                                replys_to: Set(find_reply_to(db, &m, channel, user, http).await?),
+                            };
+                            let db_msg = message.insert(db).await?;
+                            Ok(Some(db_msg.id))
+                        }
+                        _ => {
+                            error!(
+                                "Could not find message that was replied to from message {}",
+                                msg.id.0
+                            );
+                            Ok(None)
                         }
                     }
-                    _ => {
-                        error!("Could not find message id of message that was replied to from message {}", msg.id.0);
-                        Ok(None)
-                    }
-                },
-                _ => Ok(None),
-            }
-        }
+                }
+                _ => {
+                    error!(
+                        "Could not find message id of message that was replied to from message {}",
+                        msg.id.0
+                    );
+                    Ok(None)
+                }
+            },
+            _ => Ok(None),
+        },
     }
 }
-

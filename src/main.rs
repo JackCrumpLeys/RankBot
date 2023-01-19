@@ -1,30 +1,27 @@
-use std::sync::Arc;
 use env_file_reader::read_file;
 use log::{debug, LevelFilter};
 use migration::{Migrator, MigratorTrait};
 use poise::serenity_prelude as serenity;
+use std::sync::Arc;
 
+use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 
-use sea_orm::{
-    ConnectOptions, Database, DatabaseConnection,
-};
-
-use std::time::Duration;
+use crate::handlers::message::handle_message;
+use crate::serenity::http::CacheHttp;
+use crate::serenity::model::prelude::Message;
+use commands::messages;
+use entity::users::Column::Name;
 use futures::future;
 use indicatif::ProgressBar;
-use crate::serenity::http::CacheHttp;
-use tokio::time::Instant;
-use entity::users::Column::Name;
-use crate::handlers::message::handle_message;
 use rayon::prelude::*;
-use commands::messages;
-use crate::serenity::model::prelude::Message;
+use std::time::Duration;
+use tokio::time::Instant;
 // use tokio_rusqlite::Connection;
 
+mod commands;
 mod db;
 mod handlers;
 mod message_analyzer;
-mod commands;
 
 #[derive(Clone)]
 pub struct Data {
@@ -62,9 +59,16 @@ async fn event_event_handler(
             );
         }
         poise::Event::Message { new_message: msg } => {
-            handle_message(&_ctx.http.clone(), data, msg, None, &_ctx.cache.clone(), false)
-                .await
-                .expect("Failed to handle message");
+            handle_message(
+                &_ctx.http.clone(),
+                data,
+                msg,
+                None,
+                &_ctx.cache.clone(),
+                false,
+            )
+            .await
+            .expect("Failed to handle message");
         }
         _ => {}
     }
