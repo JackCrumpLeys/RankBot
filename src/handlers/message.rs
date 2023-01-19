@@ -3,20 +3,19 @@ use crate::serenity::model::prelude::Message;
 use crate::{Data, Error};
 use async_recursion::async_recursion;
 use entity::channels::ActiveModel as ChannelActiveModel;
-use entity::guilds;
+use entity::{channels, guilds, users};
 
 use entity::messages::ActiveModel as MessageActiveModel;
 use entity::prelude::Channels as ChannelsEntity;
 
 
 use entity::prelude::{Guilds, Messages, Users as UsersEntity};
-use entity::users;
 use entity::users::ActiveModel as UserActiveModel;
-use entity::{channels, messages};
+use entity::{messages};
 
-use log::{error};
+use log::{debug, error, trace, warn};
 
-use poise::serenity_prelude as serenity;
+use poise::{serenity_prelude as serenity, serenity_prelude};
 use sea_orm::ActiveValue::{Set};
 use sea_orm::ColumnTrait;
 use sea_orm::{
@@ -28,39 +27,58 @@ use sea_orm::{
 
 
 use std::ops::Deref;
-
-
-
-
+use std::sync::Arc;
+use std::time::Instant;
+use crate::serenity::cache::Cache;
+use crate::serenity::model::id::GuildId;
 
 
 pub async fn handle_message(
-    _ctx: &serenity::Context,
+    http: &Arc<serenity::Http>,
     data: &Data,
     msg: &Message,
+    guild_id: Option<GuildId>,
+    cache: &Arc<Cache>,
+    log: bool,
 ) -> Result<(), Error> {
-    let guild_name = match msg.guild(&_ctx.cache) {
-        Some(g) => g.name,
-        None => _ctx.http.get_guild(msg.guild_id.unwrap().0).await?.name,
+    let timer = Instant::now();
+    trace!("Handling message: {:?}", msg);
+    let guild_id = match guild_id {
+        Some(guild_id) => guild_id,
+        None => {
+            match msg.guild_id {
+                Some(guild_id) => guild_id,
+                None => {
+                    warn!("Message is not in a guild, ignoring");
+                    return Ok(());
+                }
+            }
+        }
     };
-    let channel_name = match msg.channel((&_ctx.cache, _ctx.http.deref())).await? {
+
+
+    let guild_name = match msg.guild(&cache) {
+        Some(g) => g.name,
+        None => http.get_guild(guild_id.0).await?.name,
+    };
+    let channel_name = match msg.channel((cache, http.deref())).await? {
         serenity::Channel::Guild(c) => c.name,
         _ => "DM".to_string(),
     };
+    if log{
 
-    if msg.guild_id.is_some() {
         log::info!(
-            "[message] [{}:{}] [{}:{}] {}: {}",
-            msg.guild_id.unwrap().0,
-            guild_name,
-            msg.channel_id,
-            channel_name,
-            msg.author.name,
-            msg.content
-        );
+        "[message] [{}:{}] [{}:{}] {}: {}",
+        guild_id.0,
+        guild_name,
+        msg.channel_id,
+        channel_name,
+        msg.author.name,
+        msg.content
+    );
     }
     let guild = match Guilds::find()
-        .filter(guilds::Column::Snowflake.eq(msg.guild_id.unwrap().0))
+        .filter(guilds::Column::Snowflake.eq(guild_id.0))
         .one(&data.db)
         .await?
     {
@@ -73,13 +91,13 @@ pub async fn handle_message(
         None => {
             let g = guilds::ActiveModel {
                 id: NotSet,
-                snowflake: Set(msg.guild_id.unwrap().0 as i64),
+                snowflake: Set(guild_id.0 as i64),
                 name: Set(guild_name),
                 score: Set(score_message(&msg.content)),
                 message_count: Set(1),
                 user_count: Set(1),
             };
-            dbg!(g.clone().insert(&data.db).await?)
+            g.clone().insert(&data.db).await?
         }
     };
     let user = match UsersEntity::find()
@@ -106,7 +124,7 @@ pub async fn handle_message(
         }
     };
     let channel = match ChannelsEntity::find()
-        .filter(entity::channels::Column::Snowflake.eq(msg.channel_id.0))
+        .filter(channels::Column::Snowflake.eq(msg.channel_id.0))
         .one(&data.db)
         .await?
     {
@@ -135,21 +153,22 @@ pub async fn handle_message(
         score: Set(score_message(&msg.content)),
         user: Set(user.id),
         channel: Set(channel.id),
-        replys_to: { Set(find_reply_to(&data.db, _ctx, msg, channel, user).await?) },
+        replys_to: { Set(find_reply_to(&data.db, msg, channel, user, http).await?) },
     };
 
     message.save(&data.db).await?;
 
+    trace!("Message handled in {:?}", timer.elapsed());
     Ok(())
 }
 
 #[async_recursion]
 async fn find_reply_to(
     db: &DatabaseConnection,
-    ctx: &serenity::Context,
     msg: &Message,
     channel: channels::Model,
     user: users::Model,
+    http: &Arc<serenity::Http>,
 ) -> Result<Option<i32>, Error> {
     match Messages::find()
         .filter(messages::Column::Snowflake.eq(msg.id.0))
@@ -161,8 +180,7 @@ async fn find_reply_to(
             match msg.message_reference {
                 Some(ref r) => match r.message_id {
                     Some(_msg_id) => {
-                        match ctx
-                            .http
+                        match http
                             .get_message(r.channel_id.0, r.message_id.unwrap().0)
                             .await
                         {
@@ -174,9 +192,9 @@ async fn find_reply_to(
                                     score: Set(score_message(&m.content)),
                                     user: Set(user.id),
                                     channel: Set(channel.id),
-                                    replys_to: Set(find_reply_to(db, ctx, &m, channel, user).await?),
+                                    replys_to: Set(find_reply_to(db, &m, channel, user, http).await?),
                                 };
-                                let db_msg = dbg!(message.insert(db).await?);
+                                let db_msg = message.insert(db).await?;
                                 Ok(Some(db_msg.id))
                             }
                             _ => {
@@ -198,3 +216,4 @@ async fn find_reply_to(
         }
     }
 }
+

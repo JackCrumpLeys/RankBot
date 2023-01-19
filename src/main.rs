@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use env_file_reader::read_file;
 use log::{debug, LevelFilter};
 use migration::{Migrator, MigratorTrait};
@@ -8,21 +9,24 @@ use sea_orm::{
     ConnectOptions, Database, DatabaseConnection,
 };
 
-
-
-
-
-
-
-
 use std::time::Duration;
+use futures::future;
+use indicatif::ProgressBar;
+use crate::serenity::http::CacheHttp;
 use tokio::time::Instant;
+use entity::users::Column::Name;
+use crate::handlers::message::handle_message;
+use rayon::prelude::*;
+use commands::messages;
+use crate::serenity::model::prelude::Message;
 // use tokio_rusqlite::Connection;
 
 mod db;
 mod handlers;
 mod message_analyzer;
+mod commands;
 
+#[derive(Clone)]
 pub struct Data {
     db: DatabaseConnection,
 }
@@ -58,26 +62,14 @@ async fn event_event_handler(
             );
         }
         poise::Event::Message { new_message: msg } => {
-            handlers::message::handle_message(_ctx, data, msg)
+            handle_message(&_ctx.http.clone(), data, msg, None, &_ctx.cache.clone(), false)
                 .await
                 .expect("Failed to handle message");
         }
         _ => {}
     }
-    log::debug!("event handler took {:?}", timer.elapsed());
+    debug!("event handler took {:?}", timer.elapsed());
 
-    Ok(())
-}
-
-/// Displays your or another user's account creation date
-#[poise::command(slash_command)]
-async fn age(
-    ctx: Context<'_>,
-    #[description = "Selected user"] user: Option<serenity::User>,
-) -> Result<(), Error> {
-    let u = user.as_ref().unwrap_or_else(|| ctx.author());
-    let response = format!("{}'s account was created at {}", u.name, u.created_at());
-    ctx.say(response).await?;
     Ok(())
 }
 
@@ -95,6 +87,7 @@ async fn main() -> Result<(), Error> {
             ))
         })
         .level(LevelFilter::Info)
+        .chain(fern::log_file("log/info.log")?)
         .chain(fern::log_file(format!("log/info_{}.log", formatted_time))?);
     let debug_logger = fern::Dispatch::new()
         .format(|out, message, record| {
@@ -107,6 +100,7 @@ async fn main() -> Result<(), Error> {
             ))
         })
         .level(LevelFilter::Debug)
+        .chain(fern::log_file("log/debug.log")?)
         .chain(fern::log_file(format!("log/debug_{}.log", formatted_time))?)
         .chain(std::io::stdout());
     fern::Dispatch::new()
@@ -115,9 +109,10 @@ async fn main() -> Result<(), Error> {
         .level_for("hyper", LevelFilter::Off)
         .level_for("poise", LevelFilter::Off)
         .level_for("tracing", LevelFilter::Off)
-        .level_for("hs", LevelFilter::Off)
+        .level_for("h2", LevelFilter::Off)
         .level_for("reqwest", LevelFilter::Off)
         .level_for("rustls", LevelFilter::Off)
+        .level_for("sqlx", LevelFilter::Off)
         // Output to stdout, files, and other Dispatch configurations
         .chain(info_logger)
         .chain(debug_logger)
@@ -161,7 +156,7 @@ async fn main() -> Result<(), Error> {
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            commands: vec![age()],
+            commands: vec![messages::load_messages()],
             event_handler: |ctx, event, framework, user_data| {
                 Box::pin(event_event_handler(ctx, event, framework, user_data))
             },
