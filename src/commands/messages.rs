@@ -1,18 +1,15 @@
-use std::collections::HashMap;
 use crate::handlers::message::handle_message;
 use crate::{Context, Error};
 use futures::future;
+use std::collections::HashMap;
 
 use log::{debug, trace};
 use serenity::http::CacheHttp;
 
-use std::sync::{Arc};
-
-use tokio::time::Instant;
-use rayon::iter::ParallelIterator;
+use std::sync::Arc;
 
 use tokio::sync::RwLock;
-
+use tokio::time::Instant;
 
 /// Loads messages fom server onto the database
 #[poise::command(slash_command)]
@@ -33,10 +30,8 @@ pub async fn load_messages(
     let messages = Arc::new(RwLock::new(HashMap::new()));
 
     let channel_tasks: Vec<_> = channels
-        .iter()
-        .map(|(_k, v)| {
-            v.clone() // get values
-        })
+        .values()
+        .map(|v| Arc::new(v.clone()))
         .map(|channel| {
             let http = http.clone();
             let messages = messages.clone();
@@ -47,31 +42,37 @@ pub async fn load_messages(
                     .await?
                     .into_iter()
                 {
-                    messages.write().await.insert(message.id.clone(), message);
+                    trace!("Added message: {}", message.id.clone());
+                    messages.write().await.insert(message.id, message);
                 }
                 let mut last_message_count = messages.read().await.len();
-                while last_message_count == 0 && last_message_count > 0 {
+                while last_message_count != 0 && last_message_count > 0 {
                     let last_message = messages.read().await;
                     let last_message = last_message.iter().last().unwrap();
                     for message in channel
-                        .messages(&http, |retriever| { retriever.before(last_message.0).limit(u64::MAX) })
+                        .messages(&http, |retriever| {
+                            retriever.before(last_message.0).limit(u64::MAX)
+                        })
                         .await?
-                        .into_iter() {
+                        .into_iter()
+                    {
                         trace!("Added message: {}", message.id.clone());
-                        messages.write().await.insert(message.id.clone(), message);
+                        messages.write().await.insert(message.id, message);
                     }
 
                     last_message_count = messages.read().await.len();
                 }
-                debug!("Loaded {} messages from {}", messages.read().await.len(), channel.name);
+                debug!(
+                    "Loaded {} messages from {}",
+                    messages.read().await.len(),
+                    channel.name
+                );
                 Ok::<_, Error>(())
             })
         })
         .collect();
 
     let _message = future::join_all(channel_tasks).await;
-
-
 
     // message
     //     .iter()
@@ -91,10 +92,11 @@ pub async fn load_messages(
     let data = ctx.data().clone();
     // let pb = Arc::new(ProgressBar::new(messages_len as u64).clone());
 
-    let message_tasks = messages
-        .read().await;
+    let message_tasks = messages.read().await;
 
-    let message_tasks: Vec<_> = message_tasks.clone().into_values()
+    let message_tasks: Vec<_> = message_tasks
+        .clone()
+        .into_values()
         // .map(|m| m.1)
         .map(|message| {
             let http = http.clone();
@@ -103,7 +105,16 @@ pub async fn load_messages(
             // let pb = pb.clone();
             let messages = messages.clone();
             tokio::spawn(async move {
-                handle_message(&http, &data, &message, Some(guild.id), &cache, false, messages).await?;
+                handle_message(
+                    &http,
+                    &data,
+                    &message,
+                    Some(guild.id),
+                    &cache,
+                    false,
+                    messages,
+                )
+                .await?;
                 // pb.inc(1);
 
                 Ok::<(), Error>(())
@@ -112,7 +123,6 @@ pub async fn load_messages(
         .collect();
     // pb.finish_with_message("done");
     future::join_all(message_tasks).await;
-
 
     debug!("load_messages took {:?}", timer.elapsed());
     let messages_len = messages.read().await.len();

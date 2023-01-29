@@ -1,26 +1,21 @@
 extern crate core;
 
-use std::collections::HashMap;
 use env_file_reader::read_file;
 use log::{debug, LevelFilter};
 use migration::{Migrator, MigratorTrait};
 use poise::serenity_prelude as serenity;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 
 use crate::handlers::message::handle_message;
-use crate::serenity::http::CacheHttp;
-
 use commands::messages;
 
-
-
-use rayon::prelude::*;
-use std::time::Duration;
-use tokio::sync::{RwLock};
-use tokio::time::Instant;
 use crate::commands::tests;
+use std::time::Duration;
+use tokio::sync::RwLock;
+use tokio::time::Instant;
 // use tokio_rusqlite::Connection;
 
 mod commands;
@@ -71,7 +66,7 @@ async fn event_event_handler(
                 None,
                 &_ctx.cache.clone(),
                 false,
-                Arc::new(RwLock::new(HashMap::new()))
+                Arc::new(RwLock::new(HashMap::new())),
             )
             .await
             .expect("Failed to handle message");
@@ -129,7 +124,7 @@ async fn main() -> Result<(), Error> {
         .chain(std::io::stdout());
     fern::Dispatch::new()
         // per-module overrides
-         .level_for("serenity", LevelFilter::Off)
+        .level_for("serenity", LevelFilter::Off)
         .level_for("hyper", LevelFilter::Off)
         .level_for("poise", LevelFilter::Off)
         .level_for("tracing", LevelFilter::Off)

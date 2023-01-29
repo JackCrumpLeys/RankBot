@@ -1,6 +1,6 @@
-use std::time::Duration;
-use indicatif::ProgressBar;
 use crate::{Context, Error};
+use indicatif::ProgressBar;
+use std::time::Duration;
 
 /// a command to test progress bars
 #[poise::command(slash_command)]
@@ -9,7 +9,9 @@ pub async fn test_progress_bar(ctx: Context<'_>) -> Result<(), Error> {
     let pb = ProgressBar::new(100);
     pb.set_style(
         indicatif::ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}/{len:7} {msg}")?
+            .template(
+                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}/{len:7} {msg}",
+            )?
             .progress_chars("##-"),
     );
     pb.set_message("Loading...");

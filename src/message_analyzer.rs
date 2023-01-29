@@ -2,6 +2,7 @@ pub fn score_message(_message: &str) -> i32 {
     0
 }
 
+#[allow(dead_code)]
 pub fn score_word(word: &str) -> f32 {
     let mut score = 0.0;
     let mut word = word.to_lowercase();
@@ -25,6 +26,7 @@ pub fn score_word(word: &str) -> f32 {
     score / word.len() as f32
 }
 
+#[allow(dead_code)]
 pub fn score_char(c: char) -> f32 {
     match c {
         'a' | 'e' | 'i' | 'o' | 'u' | 'y' => 1.0,

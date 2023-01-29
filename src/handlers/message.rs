@@ -1,10 +1,10 @@
-use std::collections::HashMap;
 use crate::message_analyzer::score_message;
 use crate::serenity::model::prelude::Message;
 use crate::{Data, Error};
 use async_recursion::async_recursion;
 use entity::channels::ActiveModel as ChannelActiveModel;
 use entity::{channels, guilds, users};
+use std::collections::HashMap;
 
 use entity::messages::ActiveModel as MessageActiveModel;
 use entity::prelude::Channels as ChannelsEntity;
@@ -15,7 +15,7 @@ use entity::users::ActiveModel as UserActiveModel;
 
 use log::{error, trace, warn};
 
-use poise::{serenity_prelude as serenity};
+use poise::serenity_prelude as serenity;
 use sea_orm::ActiveValue::Set;
 use sea_orm::ColumnTrait;
 use sea_orm::{
@@ -29,8 +29,8 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Instant;
 
-use tokio::sync::{RwLock, RwLockReadGuard};
 use crate::serenity::model::prelude::MessageId;
+use tokio::sync::{RwLock, RwLockReadGuard};
 
 pub async fn handle_message(
     http: &Arc<serenity::Http>,
@@ -54,15 +54,20 @@ pub async fn handle_message(
         },
     };
 
-    let guild = match msg.guild(&cache) { // this is very messy and could be better :/
+    let guild = match msg.guild(cache) {
+        // this is very messy and could be better :/
         Some(d_guild) => {
-            match Guilds::find().filter(guilds::Column::Snowflake.eq(guild_id.0)).one(&data.db).await? {
+            match Guilds::find()
+                .filter(guilds::Column::Snowflake.eq(guild_id.0))
+                .one(&data.db)
+                .await?
+            {
                 Some(guild) => {
                     let mut guild = guild.into_active_model();
                     guild.score = Set(score_message(&msg.content) + guild.score.unwrap());
                     guild.message_count = Set(guild.message_count.unwrap() + 1);
                     guild.clone().update(&data.db).await?
-                },
+                }
                 None => {
                     let guild = guilds::ActiveModel {
                         id: NotSet,
@@ -75,15 +80,19 @@ pub async fn handle_message(
                     guild.clone().insert(&data.db).await?
                 }
             }
-        },
+        }
         None => {
-            match Guilds::find().filter(guilds::Column::Snowflake.eq(guild_id.0)).one(&data.db).await? {
+            match Guilds::find()
+                .filter(guilds::Column::Snowflake.eq(guild_id.0))
+                .one(&data.db)
+                .await?
+            {
                 Some(g) => {
                     let mut guild = g.into_active_model();
                     guild.score = Set(score_message(&msg.content) + guild.score.unwrap());
                     guild.message_count = Set(guild.message_count.unwrap() + 1);
                     guild.clone().update(&data.db).await?
-                },
+                }
                 None => {
                     let d_guild = http.get_guild(guild_id.0).await?;
                     let guild = guilds::ActiveModel {
@@ -97,7 +106,7 @@ pub async fn handle_message(
                     guild.clone().insert(&data.db).await?
                 }
             }
-        },
+        }
     };
     let guild_name = guild.name;
 
@@ -173,7 +182,17 @@ pub async fn handle_message(
         score: Set(score_message(&msg.content)),
         user: Set(user.id),
         channel: Set(channel.id),
-        replys_to: { Set(find_reply_to(&data.db, msg, &channel, user, http, message_cache.read().await).await?) },
+        replys_to: {
+            Set(find_reply_to(
+                &data.db,
+                msg,
+                &channel,
+                user,
+                http,
+                message_cache.read().await,
+            )
+            .await?)
+        },
     };
 
     message.save(&data.db).await?;
@@ -192,64 +211,58 @@ async fn find_reply_to(
     message_cache: RwLockReadGuard<'async_recursion, HashMap<MessageId, Message>>,
 ) -> Result<Option<i32>, Error> {
     match message_cache.get(&msg.id) {
-        Some(m) => {
-            match &m.message_reference {
-                Some(msg_ref) => {
-                    let reply_to = match msg_ref.message_id {
-                        Some(msg_id) => {
-                            match message_cache.get(&msg_id) {
-                                Some(m) => {
-                                    match UsersEntity::find()
-                                        .filter(users::Column::Snowflake.eq(m.author.id.0))
-                                        .one(db)
-                                        .await?
-                                    {
-                                        Some(u) => Some(u.id),
-                                        None => {
-                                            let user = UserActiveModel {
-                                                id: NotSet,
-                                                snowflake: Set(m.author.id.0 as i64),
-                                                name: Set(m.author.tag()),
-                                                score: Set(0),
-                                                message_count: Set(0),
-                                                guild: Set(channel.guild),
-                                            };
-                                            Some(user.insert(db).await?.try_into_model()?.id)
-                                        }
-                                    }
-                                }
+        Some(m) => match &m.message_reference {
+            Some(msg_ref) => {
+                let reply_to = match msg_ref.message_id {
+                    Some(msg_id) => match message_cache.get(&msg_id) {
+                        Some(m) => {
+                            match UsersEntity::find()
+                                .filter(users::Column::Snowflake.eq(m.author.id.0))
+                                .one(db)
+                                .await?
+                            {
+                                Some(u) => Some(u.id),
                                 None => {
-                                    let m = http.get_message(msg_ref.channel_id.0, msg_id.0).await?;
-                                    match UsersEntity::find()
-                                        .filter(users::Column::Snowflake.eq(m.author.id.0))
-                                        .one(db)
-                                        .await?
-                                    {
-                                        Some(u) => Some(u.id),
-                                        None => {
-                                            let user = UserActiveModel {
-                                                id: NotSet,
-                                                snowflake: Set(m.author.id.0 as i64),
-                                                name: Set(m.author.tag()),
-                                                score: Set(0),
-                                                message_count: Set(0),
-                                                guild: Set(channel.guild),
-                                            };
-                                            Some(user.insert(db).await?.try_into_model()?.id)
-                                        }
-                                    }
+                                    let user = UserActiveModel {
+                                        id: NotSet,
+                                        snowflake: Set(m.author.id.0 as i64),
+                                        name: Set(m.author.tag()),
+                                        score: Set(0),
+                                        message_count: Set(0),
+                                        guild: Set(channel.guild),
+                                    };
+                                    Some(user.insert(db).await?.try_into_model()?.id)
                                 }
                             }
                         }
-                        None => None,
-                    };
-                    Ok(reply_to)
-                }
-                None => {
-                    return Ok(None);
-                }
+                        None => {
+                            let m = http.get_message(msg_ref.channel_id.0, msg_id.0).await?;
+                            match UsersEntity::find()
+                                .filter(users::Column::Snowflake.eq(m.author.id.0))
+                                .one(db)
+                                .await?
+                            {
+                                Some(u) => Some(u.id),
+                                None => {
+                                    let user = UserActiveModel {
+                                        id: NotSet,
+                                        snowflake: Set(m.author.id.0 as i64),
+                                        name: Set(m.author.tag()),
+                                        score: Set(0),
+                                        message_count: Set(0),
+                                        guild: Set(channel.guild),
+                                    };
+                                    Some(user.insert(db).await?.try_into_model()?.id)
+                                }
+                            }
+                        }
+                    },
+                    None => None,
+                };
+                Ok(reply_to)
             }
-        }
+            None => Ok(None),
+        },
         None => {
             match Messages::find()
                 .filter(messages::Column::Snowflake.eq(msg.id.0))
@@ -272,7 +285,15 @@ async fn find_reply_to(
                                         score: Set(score_message(&m.content)),
                                         user: Set(user.id),
                                         channel: Set(channel.id),
-                                        replys_to: Set(find_reply_to(db, &m, channel, user, http, message_cache).await?),
+                                        replys_to: Set(find_reply_to(
+                                            db,
+                                            &m,
+                                            channel,
+                                            user,
+                                            http,
+                                            message_cache,
+                                        )
+                                        .await?),
                                     };
                                     let db_msg = message.insert(db).await?;
                                     Ok(Some(db_msg.id))
