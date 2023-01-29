@@ -2,15 +2,15 @@ use std::collections::HashMap;
 use crate::handlers::message::handle_message;
 use crate::{Context, Error};
 use futures::future;
-use indicatif::ProgressBar;
+
 use log::{debug, trace};
 use serenity::http::CacheHttp;
-use serenity::model::channel::Message;
-use std::sync::{Arc, Mutex};
-use rayon::prelude::IntoParallelIterator;
+
+use std::sync::{Arc};
+
 use tokio::time::Instant;
 use rayon::iter::ParallelIterator;
-use serenity::model::id::MessageId;
+
 use tokio::sync::RwLock;
 
 
@@ -21,20 +21,20 @@ pub async fn load_messages(
     #[description = "Reset messages (default off)"] reset: Option<bool>,
 ) -> Result<(), Error> {
     let timer = Instant::now();
-    let reset = reset.unwrap_or(false);
+    let _reset = reset.unwrap_or(false);
 
     let guild = ctx.guild().unwrap();
 
     let channels = guild.channels(&ctx.http()).await?;
-    let mut http = ctx.serenity_context().http.clone();
+    let http = ctx.serenity_context().http.clone();
 
     ctx.defer().await?;
 
-    let mut messages = Arc::new(RwLock::new(HashMap::new()));
+    let messages = Arc::new(RwLock::new(HashMap::new()));
 
     let channel_tasks: Vec<_> = channels
         .iter()
-        .map(|(k, v)| {
+        .map(|(_k, v)| {
             v.clone() // get values
         })
         .map(|channel| {
@@ -69,7 +69,7 @@ pub async fn load_messages(
         })
         .collect();
 
-    let mut message = future::join_all(channel_tasks).await;
+    let _message = future::join_all(channel_tasks).await;
 
 
 
@@ -86,9 +86,9 @@ pub async fn load_messages(
     //             debug!("Error loading messages: {}", e);
     //         }
     //     });
-    let mut cache = ctx.serenity_context().cache.clone();
-    let mut http = ctx.serenity_context().http.clone();
-    let mut data = ctx.data().clone();
+    let cache = ctx.serenity_context().cache.clone();
+    let http = ctx.serenity_context().http.clone();
+    let data = ctx.data().clone();
     // let pb = Arc::new(ProgressBar::new(messages_len as u64).clone());
 
     let message_tasks = messages
@@ -115,7 +115,7 @@ pub async fn load_messages(
 
 
     debug!("load_messages took {:?}", timer.elapsed());
-    let mut messages_len = messages.read().await.len();
+    let messages_len = messages.read().await.len();
     ctx.send(|builder| {
         builder.content(format!(
             "Loaded {} messages from {} channels in {:?}",

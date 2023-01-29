@@ -13,9 +13,9 @@ use entity::messages;
 use entity::prelude::{Guilds, Messages, Users as UsersEntity};
 use entity::users::ActiveModel as UserActiveModel;
 
-use log::{debug, error, trace, warn};
+use log::{error, trace, warn};
 
-use poise::{serenity_prelude as serenity, serenity_prelude};
+use poise::{serenity_prelude as serenity};
 use sea_orm::ActiveValue::Set;
 use sea_orm::ColumnTrait;
 use sea_orm::{
@@ -28,8 +28,8 @@ use crate::serenity::model::id::GuildId;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Instant;
-use crate::serenity::model::channel::MessageReference;
-use tokio::sync::{Mutex, RwLock, RwLockReadGuard};
+
+use tokio::sync::{RwLock, RwLockReadGuard};
 use crate::serenity::model::prelude::MessageId;
 
 pub async fn handle_message(

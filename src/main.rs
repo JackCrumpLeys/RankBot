@@ -11,14 +11,14 @@ use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 
 use crate::handlers::message::handle_message;
 use crate::serenity::http::CacheHttp;
-use crate::serenity::model::prelude::Message;
+
 use commands::messages;
-use entity::users::Column::Name;
-use futures::future;
-use indicatif::ProgressBar;
+
+
+
 use rayon::prelude::*;
 use std::time::Duration;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{RwLock};
 use tokio::time::Instant;
 use crate::commands::tests;
 // use tokio_rusqlite::Connection;

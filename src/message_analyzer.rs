@@ -1,4 +1,4 @@
-pub fn score_message(message: &str) -> i32 {
+pub fn score_message(_message: &str) -> i32 {
     0
 }
 
