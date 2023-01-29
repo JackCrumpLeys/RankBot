@@ -32,4 +32,4 @@ sea-orm = { version = "0.10.6", features = [ "sqlx-postgres", "runtime-tokio-rus
 async-recursion = "1.0.0"
 rayon = "1.6"
 futures = "0.3.25"
-indicatif = "0.17.3"
+indicatif = { version = "0.17.3", features = ["tokio"] }

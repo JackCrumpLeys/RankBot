@@ -1,3 +1,6 @@
+extern crate core;
+
+use std::collections::HashMap;
 use env_file_reader::read_file;
 use log::{debug, LevelFilter};
 use migration::{Migrator, MigratorTrait};
@@ -15,7 +18,9 @@ use futures::future;
 use indicatif::ProgressBar;
 use rayon::prelude::*;
 use std::time::Duration;
+use tokio::sync::{Mutex, RwLock};
 use tokio::time::Instant;
+use crate::commands::tests;
 // use tokio_rusqlite::Connection;
 
 mod commands;
@@ -66,6 +71,7 @@ async fn event_event_handler(
                 None,
                 &_ctx.cache.clone(),
                 false,
+                Arc::new(RwLock::new(HashMap::new()))
             )
             .await
             .expect("Failed to handle message");
@@ -107,9 +113,23 @@ async fn main() -> Result<(), Error> {
         .chain(fern::log_file("log/debug.log")?)
         .chain(fern::log_file(format!("log/debug_{}.log", formatted_time))?)
         .chain(std::io::stdout());
+    let trace_logger = fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "{}[{}][{}] {}",
+                chrono::Local::now().format("[%Y-%m-%d][%H:%M:%S]"),
+                record.target(),
+                record.level(),
+                message
+            ))
+        })
+        .level(LevelFilter::Trace)
+        .chain(fern::log_file("log/trace.log")?)
+        .chain(fern::log_file(format!("log/trace_{}.log", formatted_time))?)
+        .chain(std::io::stdout());
     fern::Dispatch::new()
         // per-module overrides
-        .level_for("serenity", LevelFilter::Off)
+         .level_for("serenity", LevelFilter::Off)
         .level_for("hyper", LevelFilter::Off)
         .level_for("poise", LevelFilter::Off)
         .level_for("tracing", LevelFilter::Off)
@@ -120,6 +140,7 @@ async fn main() -> Result<(), Error> {
         // Output to stdout, files, and other Dispatch configurations
         .chain(info_logger)
         .chain(debug_logger)
+        .chain(trace_logger)
         .apply()
         .expect("Failed to initialize logger");
     // info level separate file
@@ -160,7 +181,7 @@ async fn main() -> Result<(), Error> {
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            commands: vec![messages::load_messages()],
+            commands: vec![messages::load_messages(), tests::test_progress_bar()],
             event_handler: |ctx, event, framework, user_data| {
                 Box::pin(event_event_handler(ctx, event, framework, user_data))
             },
