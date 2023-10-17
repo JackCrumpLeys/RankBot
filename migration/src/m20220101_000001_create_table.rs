@@ -3,102 +3,6 @@ use sea_orm_migration::prelude::*;
 #[derive(DeriveMigrationName)]
 pub struct Migration;
 
-// old code:
-//         conn.execute(
-//             "CREATE TABLE IF NOT EXISTS guilds (
-//                 id INTEGER PRIMARY KEY,
-//                 snowflake INTEGER NOT NULL,
-//                 name TEXT NOT NULL,
-//                 score INTEGER NOT NULL,
-//                 message_count INTEGER NOT NULL,
-//                 user_count INTEGER NOT NULL
-//             )",
-//             params![],
-//         )?;
-//         conn.execute(
-//             "CREATE TABLE IF NOT EXISTS channels (
-//                 id INTEGER PRIMARY KEY,
-//                 snowflake INTEGER NOT NULL,
-//                 name TEXT NOT NULL,
-//                 score INTEGER NOT NULL,
-//                 message_count INTEGER NOT NULL,
-//                 guild INTEGER NOT NULL,
-//                 FOREIGN KEY(guild) REFERENCES guilds(id)
-//             )",
-//             params![],
-//         )?;
-//         conn.execute(
-//             "CREATE TABLE IF NOT EXISTS users (
-//                 id INTEGER PRIMARY KEY,
-//                 snowflake INTEGER NOT NULL,
-//                 message_count INTEGER NOT NULL,
-//                 score INTEGER NOT NULL,
-//                 guild INTEGER NOT NULL,
-//                 FOREIGN KEY(guild) REFERENCES guilds(id)
-//             )",
-//             params![],
-//         )?;
-//         conn.execute(
-//             "CREATE TABLE IF NOT EXISTS messages (
-//                 id INTEGER PRIMARY KEY,
-//                 snowflake INTEGER NOT NULL,
-//                 content TEXT NOT NULL,
-//                 score INTEGER NOT NULL,
-//                 replys_to INTEGER,
-//                 channel INTEGER NOT NULL,
-//                 user INTEGER NOT NULL,
-//                 FOREIGN KEY(replys_to) REFERENCES messages(id),
-//                 FOREIGN KEY(channel) REFERENCES channels(id),
-//                 FOREIGN KEY(user) REFERENCES users(id)
-//             )",
-//             params![],
-//         )?;
-
-#[derive(Iden)]
-enum Guilds {
-    Table,
-    Id,
-    Snowflake,
-    Name,
-    Score,
-    MessageCount,
-    UserCount,
-}
-
-#[derive(Iden)]
-enum Channels {
-    Table,
-    Id,
-    Snowflake,
-    Name,
-    Score,
-    MessageCount,
-    Guild,
-}
-
-#[derive(Iden)]
-enum Users {
-    Table,
-    Id,
-    Name,
-    Snowflake,
-    MessageCount,
-    Score,
-    Guild,
-}
-
-#[derive(Iden)]
-enum Messages {
-    Table,
-    Id,
-    Snowflake,
-    Content,
-    Score,
-    ReplysTo,
-    Channel,
-    User,
-}
-
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
@@ -252,4 +156,49 @@ impl MigrationTrait for Migration {
 
         Ok(())
     }
+}
+
+#[derive(Iden)]
+enum Guilds {
+    Table,
+    Id,
+    Snowflake,
+    Name,
+    Score,
+    MessageCount,
+    UserCount,
+}
+
+#[derive(Iden)]
+enum Channels {
+    Table,
+    Id,
+    Snowflake,
+    Name,
+    Score,
+    MessageCount,
+    Guild,
+}
+
+#[derive(Iden)]
+enum Users {
+    Table,
+    Id,
+    Name,
+    Snowflake,
+    MessageCount,
+    Score,
+    Guild,
+}
+
+#[derive(Iden)]
+enum Messages {
+    Table,
+    Id,
+    Snowflake,
+    Content,
+    Score,
+    ReplysTo,
+    Channel,
+    User,
 }
