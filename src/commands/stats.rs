@@ -589,10 +589,12 @@ pub async fn stats(
 
     for message in messages.iter() {
         for word in message.content.split(" ") {
-            if word.len() > 3 {
-                if !ctx.data().common_words.contains(word) {
-                    let word = word.to_lowercase();
-                    *words.entry(word).or_insert(0) += 1;
+            if word.len() > 8 {
+                if !word.starts_with("<@") && !word.ends_with(">") {
+                    if !ctx.data().common_words.contains(word) {
+                        let word = word.to_lowercase();
+                        *words.entry(word).or_insert(0) += 1;
+                    }
                 }
             }
         }

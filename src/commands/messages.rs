@@ -428,18 +428,22 @@ pub async fn load_messages(
             .iter()
             .map(|(id, count)| (id, count, data.clone()))
             .map(async move |(user_id, count, data)| {
-                let mut a_user = entity::users::Entity::find_by_id(user_id.0 as i64)
-                    .one(&data.db)
-                    .await
-                    .unwrap()
-                    .unwrap()
-                    .into_active_model();
+                loop {
+                    match entity::users::Entity::find_by_id(user_id.0 as i64)
+                        .one(&data.db)
+                        .await {
+                        Ok(Some(user)) => {
+                            let mut a_user = user.into_active_model();
+                            a_user.message_count = Set(*count + a_user.message_count.unwrap());
 
-                a_user.message_count = Set(*count + a_user.message_count.unwrap());
+                            a_user.update(&data.db).await.unwrap();
 
-                a_user.update(&data.db).await.unwrap();
-
-                Ok::<(), Error>(())
+                            break;
+                        }
+                        Err(_) => {}
+                        _ => {}
+                    }
+                }
             })
             .collect::<Vec<_>>(),
     )
