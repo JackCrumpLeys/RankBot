@@ -1,49 +1,44 @@
-#![feature(async_fn_in_trait, async_closure)]
+#![feature(async_closure)]
 
 extern crate core;
 
-
-use env_file_reader::read_file;
-use log::{debug, LevelFilter};
-use migration::{Migrator, MigratorTrait};
-use poise::serenity_prelude as serenity;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use entity::guilds::Column::Snowflake as GuildSnowflake;
 use entity::channels::Column::Snowflake as ChannelSnowflake;
+use entity::guilds::Column::Snowflake as GuildSnowflake;
 use entity::users::Column::Snowflake as UserSnowflake;
+use env_file_reader::read_file;
+use log::{debug, info, LevelFilter};
+use poise::serenity_prelude as serenity;
+use std::collections::HashSet;
+use std::sync::Arc;
 
-
-use sea_orm::{ActiveModelTrait, ConnectOptions, Database, DatabaseConnection, EntityTrait, IntoActiveModel, QuerySelect, SelectColumns, Set};
+use sea_orm::{
+    ActiveModelTrait, ConnectOptions, Database, DatabaseConnection, EntityTrait, IntoActiveModel,
+    SelectColumns, Set,
+};
 
 use crate::handlers::message::handle_message;
 use commands::messages;
 
-use crate::commands::{leaderboard, stats, tests};
-use std::time::Duration;
-use serenity::model::prelude::{ChannelId, GuildId, UserId};
-use tokio::sync::RwLock;
-use tokio::time::Instant;
-use entity::prelude::Guilds;
-use crate::commands::leaderboard::leaderboard;
-use crate::commands::stats::stats;
+use crate::commands::{leaderboard, stats};
 use crate::message_analyzer::score_message;
-// use tokio_rusqlite::Connection;
+use entity::prelude::Guilds;
+use std::time::Duration;
+use tokio::sync::RwLock;
 
 mod commands;
+mod common_words;
 mod db;
 mod handlers;
 mod logging;
 mod message_analyzer;
 mod scores;
-mod common_words;
 
 #[derive(Clone)]
 pub struct Data {
     db: DatabaseConnection,
-    guild_in_db: Arc<RwLock<HashSet<GuildId>>>,
-    channel_in_db: Arc<RwLock<HashSet<ChannelId>>>,
-    user_in_db: Arc<RwLock<HashSet<UserId>>>,
+    guild_in_db: Arc<RwLock<HashSet<u64>>>,
+    channel_in_db: Arc<RwLock<HashSet<u64>>>,
+    user_in_db: Arc<RwLock<HashSet<u64>>>,
     common_words: Arc<HashSet<String>>,
 }
 
@@ -59,15 +54,14 @@ type Context<'a> = poise::Context<'a, Data, Error>;
 
 async fn event_event_handler(
     _ctx: &serenity::Context,
-    event: &poise::Event<'_>,
+    event: &serenity::FullEvent,
     _framework: poise::FrameworkContext<'_, Data, Error>,
     data: &Data,
 ) -> Result<(), Error> {
-    let timer = Instant::now();
     match event {
-        poise::Event::Ready { data_about_bot } => {
-            println!("{} is connected!", data_about_bot.user.name);
-            println!(
+        serenity::FullEvent::Ready { data_about_bot } => {
+            info!("{} is connected!", data_about_bot.user.name);
+            info!(
                 "in servers: {:?}",
                 _ctx.http
                     .get_guilds(None, None)
@@ -77,8 +71,28 @@ async fn event_event_handler(
                     .collect::<Vec<&str>>()
             );
         }
-        poise::Event::Message { new_message: msg } => {
+        serenity::FullEvent::Message { new_message: msg } => {
             if !msg.author.bot {
+                if msg.content.contains("twitter.com/") || msg.content.contains("x.com/") {
+                    let mut links_to_post = Vec::new();
+                    for link in msg.content.split_whitespace() {
+                        if link.contains("twitter.com/") {
+                            // replace with nitter link
+                            let link = link.replace("twitter.com/", "nitter.net/");
+                            links_to_post.push(link);
+                        }
+                        if link.contains("x.com/") {
+                            // replace with invidious link
+                            let link = link.replace("x.com/", "nitter.net/");
+                            links_to_post.push(link);
+                        }
+                    }
+
+                    msg.reply(_ctx, links_to_post.join(" "))
+                        .await
+                        .expect("Failed to reply to message");
+                }
+
                 let score = score_message(msg, &data.db).await;
 
                 handle_message(
@@ -93,10 +107,10 @@ async fn event_event_handler(
                     &data.channel_in_db,
                     &data.user_in_db,
                 )
-                    .await
-                    .expect("Failed to handle message");
+                .await
+                .expect("Failed to handle message");
 
-                let mut a_guild = Guilds::find_by_id(msg.guild_id.unwrap().0 as i64)
+                let mut a_guild = Guilds::find_by_id(msg.guild_id.unwrap().get() as i64)
                     .one(&data.db)
                     .await?
                     .unwrap()
@@ -106,7 +120,7 @@ async fn event_event_handler(
 
                 a_guild.update(&data.db).await?;
 
-                let mut a_user = entity::users::Entity::find_by_id(msg.author.id.0 as i64)
+                let mut a_user = entity::users::Entity::find_by_id(msg.author.id.get() as i64)
                     .one(&data.db)
                     .await?
                     .unwrap()
@@ -117,23 +131,21 @@ async fn event_event_handler(
 
                 a_user.update(&data.db).await?;
 
-                let mut a_channel = entity::channels::Entity::find_by_id(msg.channel_id.0 as i64)
-                    .one(&data.db)
-                    .await?
-                    .unwrap()
-                    .into_active_model();
+                let mut a_channel =
+                    entity::channels::Entity::find_by_id(msg.channel_id.get() as i64)
+                        .one(&data.db)
+                        .await?
+                        .unwrap()
+                        .into_active_model();
 
                 a_channel.score = Set(score + a_channel.score.unwrap());
                 a_channel.message_count = Set(a_channel.message_count.unwrap() + 1);
 
                 a_channel.update(&data.db).await?;
             }
-
         }
         _ => {}
     }
-    debug!("event handler took {:?}", timer.elapsed());
-
     Ok(())
 }
 
@@ -178,7 +190,7 @@ async fn main() -> Result<(), Error> {
         .all(&db)
         .await?
         .into_iter()
-        .map(|g| GuildId(g.snowflake as u64))
+        .map(|g| g.snowflake as u64)
         .collect::<HashSet<_>>();
 
     let channel_in_db = entity::channels::Entity::find()
@@ -186,7 +198,7 @@ async fn main() -> Result<(), Error> {
         .all(&db)
         .await?
         .into_iter()
-        .map(|c| ChannelId(c.snowflake as u64))
+        .map(|c| c.snowflake as u64)
         .collect::<HashSet<_>>();
 
     let user_in_db = entity::users::Entity::find()
@@ -194,21 +206,23 @@ async fn main() -> Result<(), Error> {
         .all(&db)
         .await?
         .into_iter()
-        .map(|u| UserId(u.snowflake as u64))
+        .map(|u| u.snowflake as u64)
         .collect::<HashSet<_>>();
 
     println!("done!");
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            commands: vec![messages::load_messages(), tests::test_progress_bar(), leaderboard::leaderboard(), stats::stats()],
+            commands: vec![
+                messages::load_messages(),
+                leaderboard::leaderboard(),
+                stats::stats(),
+            ],
             event_handler: |ctx, event, framework, user_data| {
                 Box::pin(event_event_handler(ctx, event, framework, user_data))
             },
             ..Default::default()
         })
-        .token(token)
-        .intents(serenity::GatewayIntents::all())
         .setup(|ctx, _ready, framework| {
             Box::pin(async move {
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
@@ -226,9 +240,14 @@ async fn main() -> Result<(), Error> {
                     common_words: Arc::new(common_words::get_common_words()),
                 })
             })
-        });
+        })
+        .build();
 
-    framework.run().await.unwrap();
+    let mut client = serenity::ClientBuilder::new(token, serenity::GatewayIntents::all())
+        .framework(framework)
+        .await
+        .unwrap();
+    client.start().await.unwrap();
 
     Ok(())
 }

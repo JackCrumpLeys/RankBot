@@ -1,5 +1,5 @@
 use sea_orm_migration::prelude::*;
-use crate::m20231013_004433_snowflake_primary::Messages::Channel;
+
 use crate::sea_orm::{DbBackend, Statement, StatementBuilder};
 
 #[derive(DeriveMigrationName)]
@@ -165,7 +165,6 @@ impl MigrationTrait for Migration {
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-
         // "ALTER TABLE <table_name> DROP CONSTRAINT <table_name>_pkey;"
         struct UnsetPrimaryKey<'a> {
             table_name: &'a str,
@@ -174,7 +173,10 @@ impl MigrationTrait for Migration {
         impl StatementBuilder for UnsetPrimaryKey<'_> {
             fn build(&self, db_backend: &DbBackend) -> Statement {
                 let sql = match db_backend {
-                    DbBackend::Postgres => format!("ALTER TABLE {} DROP CONSTRAINT {}_pkey;", self.table_name, self.table_name),
+                    DbBackend::Postgres => format!(
+                        "ALTER TABLE {} DROP CONSTRAINT {}_pkey;",
+                        self.table_name, self.table_name
+                    ),
                     _ => panic!("Unsupported database backend"),
                 };
                 Statement::from_string(*db_backend, sql)
@@ -185,16 +187,18 @@ impl MigrationTrait for Migration {
                 Table::alter()
                     .table(Channels::Table)
                     .drop_foreign_key(Alias::new("FK_channels_guild"))
-                    .to_owned()
-            ).await?;
+                    .to_owned(),
+            )
+            .await?;
 
         manager
             .alter_table(
                 Table::alter()
                     .table(Users::Table)
                     .drop_foreign_key(Alias::new("FK_users_guild"))
-                    .to_owned()
-            ).await?;
+                    .to_owned(),
+            )
+            .await?;
 
         manager
             .alter_table(
@@ -203,13 +207,30 @@ impl MigrationTrait for Migration {
                     .drop_foreign_key(Alias::new("FK_messages_users"))
                     .drop_foreign_key(Alias::new("FK_messages_channels"))
                     .drop_foreign_key(Alias::new("FK_messages_replys_to"))
-                    .to_owned()
-            ).await?;
+                    .to_owned(),
+            )
+            .await?;
 
-        manager.exec_stmt(UnsetPrimaryKey { table_name: "guilds" }).await?;
-        manager.exec_stmt(UnsetPrimaryKey { table_name: "channels" }).await?;
-        manager.exec_stmt(UnsetPrimaryKey { table_name: "users" }).await?;
-        manager.exec_stmt(UnsetPrimaryKey { table_name: "messages" }).await?;
+        manager
+            .exec_stmt(UnsetPrimaryKey {
+                table_name: "guilds",
+            })
+            .await?;
+        manager
+            .exec_stmt(UnsetPrimaryKey {
+                table_name: "channels",
+            })
+            .await?;
+        manager
+            .exec_stmt(UnsetPrimaryKey {
+                table_name: "users",
+            })
+            .await?;
+        manager
+            .exec_stmt(UnsetPrimaryKey {
+                table_name: "messages",
+            })
+            .await?;
 
         manager
             .alter_table(
@@ -225,7 +246,6 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
-
 
         manager
             .alter_table(
@@ -324,10 +344,6 @@ enum Guilds {
     Table,
     Id,
     Snowflake,
-    Name,
-    Score,
-    MessageCount,
-    UserCount,
 }
 
 #[derive(Iden)]
@@ -335,9 +351,6 @@ enum Channels {
     Table,
     Id,
     Snowflake,
-    Name,
-    Score,
-    MessageCount,
     Guild,
 }
 
@@ -345,10 +358,7 @@ enum Channels {
 enum Users {
     Table,
     Id,
-    Name,
     Snowflake,
-    MessageCount,
-    Score,
     Guild,
 }
 
@@ -357,8 +367,6 @@ enum Messages {
     Table,
     Id,
     Snowflake,
-    Content,
-    Score,
     ReplysTo,
     Channel,
     User,

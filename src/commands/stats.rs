@@ -1,16 +1,20 @@
 use crate::scores::UserScore;
 use crate::Context;
 use crate::Error;
-use chrono::Timelike;
+
 use entity::prelude::{Channels, Messages, Users};
-use entity::users::Model;
+
 use num_format::Locale::en;
 use num_format::ToFormattedString;
+use poise::CreateReply;
 use poise::ReplyHandle;
 use sea_orm::ColumnTrait;
 use sea_orm::QueryFilter;
 use sea_orm::{EntityTrait, QueryOrder};
-use serenity::model::channel::Channel;
+use serenity::all::ChannelId;
+use serenity::builder::CreateEmbed;
+use serenity::builder::CreateEmbedFooter;
+
 use serenity::model::prelude::User;
 use serenity::prelude::Mentionable;
 use std::collections::{BTreeMap, HashMap};
@@ -35,21 +39,25 @@ impl StatMessage<'_> {
                 .map(|field| (field.to_string(), None))
                 .collect(),
             message: ctx
-                .send(|m| {
-                    m.embed(|e| {
-                        e.title(title);
-
-                        for field in fields {
-                            e.field(
-                                field.to_string(),
-                                "<a:recall_loading:1163546685994188934>",
-                                true,
-                            );
-                        }
-
-                        e.colour(0x00ff00)
-                    })
-                })
+                .send(
+                    CreateReply::default().embed(
+                        CreateEmbed::default()
+                            .fields(
+                                fields
+                                    .iter()
+                                    .map(|field| {
+                                        (
+                                            field.to_string(),
+                                            "<a:recall_loading:1163546685994188934>".to_string(),
+                                            true,
+                                        )
+                                    })
+                                    .collect::<Vec<(String, String, bool)>>(),
+                            )
+                            .title(title.to_string())
+                            .colour(0x00ff00),
+                    ),
+                )
                 .await?,
             ctx,
         })
@@ -80,40 +88,78 @@ impl StatMessage<'_> {
 
     async fn edit(&self) -> Result<(), Error> {
         let fields = self.fields.clone();
+        // self.message
+        //     .edit(self.ctx.clone(), |m| {
+        //         m.embed(|e| {
+        //             e.title(&self.title);
+        //
+        //             for (name, value) in fields {
+        //                 e.field(
+        //                     name,
+        //                     value.unwrap_or("<a:recall_loading:1163546685994188934>".to_string()),
+        //                     true,
+        //                 );
+        //             }
+        //
+        //             if self.get_progress() == 1.0 {
+        //                 e.footer(|f| {
+        //                     f.icon_url(
+        //                         "https://cdn.discordapp.com/emojis/1163591120840831046.gif?v=1",
+        //                     );
+        //                     f.text("Finished loading stats")
+        //                 })
+        //             } else {
+        //                 e.footer(|f| {
+        //                     f.icon_url(
+        //                         "https://cdn.discordapp.com/emojis/1163546685994188934.gif?v=1",
+        //                     );
+        //                     f.text(format!(
+        //                         "Loading stats... {:.2}%",
+        //                         self.get_progress() * 100.0
+        //                     ))
+        //                 })
+        //             };
+        //             e.colour(0x00ff00)
+        //         })
+        //     })
+        //     .await?;
         self.message
-            .edit(self.ctx.clone(), |m| {
-                m.embed(|e| {
-                    e.title(&self.title);
-
-                    for (name, value) in fields {
-                        e.field(
-                            name,
-                            value.unwrap_or("<a:recall_loading:1163546685994188934>".to_string()),
-                            true,
-                        );
-                    }
-
-                    if self.get_progress() == 1.0 {
-                        e.footer(|f| {
-                            f.icon_url(
-                                "https://cdn.discordapp.com/emojis/1163591120840831046.gif?v=1",
-                            );
-                            f.text("Finished loading stats")
-                        })
-                    } else {
-                        e.footer(|f| {
-                            f.icon_url(
-                                "https://cdn.discordapp.com/emojis/1163546685994188934.gif?v=1",
-                            );
-                            f.text(format!(
-                                "Loading stats... {:.2}%",
-                                self.get_progress() * 100.0
-                            ))
-                        })
-                    };
-                    e.colour(0x00ff00)
-                })
-            })
+            .edit(
+                *self.ctx,
+                CreateReply::default().embed(
+                    CreateEmbed::default()
+                        .title(&self.title)
+                        .fields(
+                            fields
+                                .iter()
+                                .map(|(name, value)| {
+                                    (
+                                        name,
+                                        value.clone().unwrap_or(
+                                            "<a:recall_loading:1163546685994188934>".to_string(),
+                                        ),
+                                        true,
+                                    )
+                                })
+                                .collect::<Vec<(&String, String, bool)>>(),
+                        )
+                        .colour(0x00ff00)
+                        .footer(
+                            CreateEmbedFooter::new(if self.get_progress() == 1.0 {
+                                "Finished loading stats".to_string()
+                            } else {
+                                format!("Loading stats... {:.2}%", self.get_progress() * 100.0)
+                            })
+                            .icon_url(if self.get_progress() == 1.0 {
+                                "https://cdn.discordapp.com/emojis/1163591120840831046.gif?v=1"
+                                    .to_string()
+                            } else {
+                                "https://cdn.discordapp.com/emojis/1163546685994188934.gif?v=1"
+                                    .to_string()
+                            }),
+                        ),
+                ),
+            )
             .await?;
         Ok(())
     }
@@ -132,18 +178,31 @@ pub async fn stats(
 
     let guild_id = ctx.guild_id().unwrap();
 
-    let user = match Users::find_by_id(user.id.0 as i64).one(db).await? {
+    let user = match Users::find_by_id(user.id.get() as i64).one(db).await? {
         None => {
-            ctx.send(|m| {
-                m.embed(|e| {
-                    e.title("User not found");
-                    e.description(format!(
-                        "User {} not found in database (Try saying something)",
-                        user.tag()
-                    ));
-                    e.colour(0xff0000)
-                })
-            })
+            // ctx.send(|m| {
+            //     m.embed(|e| {
+            //         e.title("User not found");
+            //         e.description(format!(
+            //             "User {} not found in database (Try saying something)",
+            //             user.tag()
+            //         ));
+            //         e.colour(0xff0000)
+            //     })
+            // })
+            // .await?;
+
+            ctx.send(
+                CreateReply::default().embed(
+                    CreateEmbed::default()
+                        .title("User not found")
+                        .description(format!(
+                            "User {} not found in database (Try saying something)",
+                            user.tag()
+                        ))
+                        .colour(0xff0000),
+                ),
+            )
             .await?;
 
             return Ok(());
@@ -260,7 +319,7 @@ pub async fn stats(
         .all(db)
         .await?;
 
-    /// use last week of messages
+    // use last week of messages
     let last_week_ranking = users
         .iter()
         .map(|u| {
@@ -301,7 +360,7 @@ pub async fn stats(
         .all(db)
         .await?;
 
-    /// use last month of messages
+    // use last month of messages
     let last_month_ranking = users
         .iter()
         .map(|u| {
@@ -342,7 +401,7 @@ pub async fn stats(
         .all(db)
         .await?;
 
-    /// use last year of messages
+    // use last year of messages
     let last_year_ranking = users
         .iter()
         .map(|u| {
@@ -378,8 +437,8 @@ pub async fn stats(
     )
     .await?;
 
-    let mut channels = Channels::find()
-        .filter(entity::channels::Column::Guild.eq(ctx.guild_id().unwrap().0 as i64))
+    let channels = Channels::find()
+        .filter(entity::channels::Column::Guild.eq(ctx.guild_id().unwrap().get() as i64))
         .order_by_desc(entity::channels::Column::Score)
         .all(db)
         .await?;
@@ -448,7 +507,7 @@ pub async fn stats(
             Some(format!(
                 "{} - {}",
                 ctx.http()
-                    .get_channel(channel.snowflake as u64)
+                    .get_channel(ChannelId::new(channel.snowflake as u64))
                     .await?
                     .mention(),
                 score
@@ -465,7 +524,7 @@ pub async fn stats(
             Some(format!(
                 "{} - {}",
                 ctx.http()
-                    .get_channel(channel.snowflake as u64)
+                    .get_channel(ChannelId::new(channel.snowflake as u64))
                     .await?
                     .mention(),
                 score
@@ -482,7 +541,7 @@ pub async fn stats(
             Some(format!(
                 "{} - {}",
                 ctx.http()
-                    .get_channel(channel.snowflake as u64)
+                    .get_channel(ChannelId::new(channel.snowflake as u64))
                     .await?
                     .mention(),
                 score
@@ -499,7 +558,7 @@ pub async fn stats(
             Some(format!(
                 "{} - {}",
                 ctx.http()
-                    .get_channel(channel.snowflake as u64)
+                    .get_channel(ChannelId::new(channel.snowflake as u64))
                     .await?
                     .mention(),
                 score
@@ -551,11 +610,11 @@ pub async fn stats(
     msg.set(
         "Average score for messages - rank",
         Some(
-            (users
+            users
                 .iter()
                 .position(|u| u.snowflake == user.snowflake)
                 .unwrap()
-                + 1),
+                + 1,
         ),
     )
     .await?;
@@ -571,7 +630,10 @@ pub async fn stats(
         "'Best' message",
         Some(format!(
             "https://discord.com/channels/{}/{}/{} - {}",
-            guild_id.0, best_message.channel, best_message.snowflake, best_message.score
+            guild_id.get(),
+            best_message.channel,
+            best_message.snowflake,
+            best_message.score
         )),
     )
     .await?;
@@ -588,14 +650,14 @@ pub async fn stats(
     let mut words = HashMap::new();
 
     for message in messages.iter() {
-        for word in message.content.split(" ") {
-            if word.len() > 8 {
-                if !word.starts_with("<@") && !word.ends_with(">") {
-                    if !ctx.data().common_words.contains(word) {
-                        let word = word.to_lowercase();
-                        *words.entry(word).or_insert(0) += 1;
-                    }
-                }
+        for word in message.content.split(' ') {
+            if word.len() > 8
+                && !word.starts_with("<@")
+                && !word.ends_with('>')
+                && !ctx.data().common_words.contains(word)
+            {
+                let word = word.to_lowercase();
+                *words.entry(word).or_insert(0) += 1;
             }
         }
     }

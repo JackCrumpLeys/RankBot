@@ -1,8 +1,7 @@
-use sea_orm::{entity::prelude::*, DatabaseConnection, QueryOrder, QuerySelect, IntoActiveModel};
+use entity::prelude::Messages;
+use sea_orm::{entity::prelude::*, DatabaseConnection, QueryOrder, QuerySelect};
 use serenity::model::prelude::Message;
 use std::collections::HashMap;
-use sea_orm::ActiveValue::Set;
-use entity::prelude::Messages;
 
 /// Function to score a message based on the word count and # of unique words (Non-spammy score)
 fn count_words(message: &str) -> (u32, u32) {
@@ -19,7 +18,7 @@ fn count_words(message: &str) -> (u32, u32) {
 pub async fn score_message(message: &Message, db: &DatabaseConnection) -> f32 {
     // Fetch the last 5 messages from this user
     let recent_messages = Messages::find()
-        .filter(entity::messages::Column::User.eq(message.author.id.0))
+        .filter(entity::messages::Column::User.eq(message.author.id.get()))
         .order_by_desc(entity::messages::Column::Snowflake)
         .limit(5)
         .all(db)
@@ -46,8 +45,5 @@ pub async fn score_message(message: &Message, db: &DatabaseConnection) -> f32 {
     let length_score = (message.content.len() as f32).sqrt() * 50.;
 
     // Final score is a combination of word score and length score
-    let score = ((word_score * 0.7) + (length_score * 0.3));
-
-
-    score
+    (word_score * 0.7) + (length_score * 0.3)
 }

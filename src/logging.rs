@@ -1,5 +1,5 @@
-use log::LevelFilter;
 use super::Error;
+use log::LevelFilter;
 
 pub fn setup_logging() -> Result<(), Error> {
     let formatted_time = chrono::Local::now().format("%d-%m-%Y-%H-%M");
@@ -54,6 +54,7 @@ pub fn setup_logging() -> Result<(), Error> {
         .level_for("rustls", LevelFilter::Warn)
         .level_for("sqlx", LevelFilter::Warn)
         .level_for("tungstenite", LevelFilter::Warn)
+        .level_for("tokio_tungstenite", LevelFilter::Warn)
         .level_for("sea_orm", LevelFilter::Info)
         .level_for("tokio_util", LevelFilter::Info)
         .level_for("want", LevelFilter::Info)
@@ -68,3 +69,4 @@ pub fn setup_logging() -> Result<(), Error> {
 
     Ok(())
 }
+

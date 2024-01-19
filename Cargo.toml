@@ -12,7 +12,7 @@ members = [".", "entity", "migration"]
 [dependencies]
 entity = { path = "entity" }
 migration = { path = "migration" } # depends on your needs
-serenity = { version="0.11.6", features = [ "builder",
+serenity = { version= "0.12.0", features = [ "builder",
     "cache",
     "chrono",
     "client",
@@ -23,7 +23,7 @@ serenity = { version="0.11.6", features = [ "builder",
     "rustls_backend"], default-features = false }
 env-file-reader = "0.3.0"
 tokio = { version = "1.33.0", features = ["full"] }
-poise = "0.5.6"
+poise = "0.6.1"
 log = "0.4.20"
 fern = "0.6.2"
 chrono = "0.4.31"
