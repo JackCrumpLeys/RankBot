@@ -4,16 +4,18 @@ extern crate core;
 
 use entity::channels::Column::Snowflake as ChannelSnowflake;
 use entity::guilds::Column::Snowflake as GuildSnowflake;
+use entity::prelude::Messages;
 use entity::users::Column::Snowflake as UserSnowflake;
 use env_file_reader::read_file;
 use log::{debug, info, LevelFilter};
 use poise::serenity_prelude as serenity;
-use std::collections::HashSet;
+use serenity::all::UserId;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use sea_orm::{
-    ActiveModelTrait, ConnectOptions, Database, DatabaseConnection, EntityTrait, IntoActiveModel,
-    SelectColumns, Set,
+    ActiveModelTrait, ColumnTrait, ConnectOptions, Database, DatabaseConnection, EntityTrait,
+    IntoActiveModel, QueryFilter, QueryOrder, QuerySelect, SelectColumns, Set,
 };
 
 use crate::handlers::message::handle_message;
@@ -36,6 +38,7 @@ mod scores;
 #[derive(Clone)]
 pub struct Data {
     db: DatabaseConnection,
+    last_five_map: Arc<RwLock<HashMap<UserId, Vec<String>>>>,
     guild_in_db: Arc<RwLock<HashSet<u64>>>,
     channel_in_db: Arc<RwLock<HashSet<u64>>>,
     user_in_db: Arc<RwLock<HashSet<u64>>>,
@@ -93,7 +96,29 @@ async fn event_event_handler(
                         .expect("Failed to reply to message");
                 }
 
-                let score = score_message(msg, &data.db).await;
+                let mut last_five = data.last_five_map.write().await;
+
+                let last_five = last_five.entry(msg.author.id.clone()).or_insert(
+                    Messages::find()
+                        .filter(entity::messages::Column::User.eq(msg.author.id.get()))
+                        .order_by_desc(entity::messages::Column::Snowflake)
+                        .limit(5)
+                        .all(&data.db)
+                        .await
+                        .expect("Error fetching recent messages")
+                        .into_iter()
+                        .map(|m| m.content)
+                        .collect(),
+                );
+
+                let score = score_message(msg, last_five).await;
+
+                last_five.push(msg.content.clone());
+
+                if last_five.len() == 6 {
+                    last_five.remove(0);
+                }
+                debug_assert!(last_five.len() < 6);
 
                 handle_message(
                     score,
@@ -155,7 +180,7 @@ async fn main() -> Result<(), Error> {
 
     debug!("Starting up");
 
-    print!("\n db set up.. ");
+    info!("\n DB setup start ===============");
 
     let env_variables = read_file("./auth.env").expect("Failed to read .env file, does it exist?");
 
@@ -209,7 +234,7 @@ async fn main() -> Result<(), Error> {
         .map(|u| u.snowflake as u64)
         .collect::<HashSet<_>>();
 
-    println!("done!");
+    info!("Done ====================");
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
@@ -234,6 +259,7 @@ async fn main() -> Result<(), Error> {
                 //     .await?;
                 Ok(Data {
                     db,
+                    last_five_map: Arc::new(RwLock::new(HashMap::new())),
                     guild_in_db: Arc::new(RwLock::new(guild_in_db)),
                     channel_in_db: Arc::new(RwLock::new(channel_in_db)),
                     user_in_db: Arc::new(RwLock::new(user_in_db)),

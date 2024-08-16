@@ -248,7 +248,7 @@ pub async fn stats(
     )
     .await?;
 
-    let last_week = chrono::Utc::now() - chrono::Duration::weeks(1);
+    let last_week = chrono::Utc::now() - chrono::Duration::try_weeks(1).unwrap();
 
     let last_week_of_messages = Messages::find()
         .filter(entity::messages::Column::User.eq(user.snowflake))
@@ -268,7 +268,7 @@ pub async fn stats(
     )
     .await?;
 
-    let last_month = chrono::Utc::now() - chrono::Duration::days(30);
+    let last_month = chrono::Utc::now() - chrono::Duration::try_days(30).unwrap();
 
     let last_month_of_messages = Messages::find()
         .filter(entity::messages::Column::User.eq(user.snowflake))
@@ -282,7 +282,7 @@ pub async fn stats(
     )
     .await?;
 
-    let last_year = chrono::Utc::now() - chrono::Duration::days(365);
+    let last_year = chrono::Utc::now() - chrono::Duration::try_days(365).unwrap();
 
     let last_year_of_messages = Messages::find()
         .filter(entity::messages::Column::User.eq(user.snowflake))

@@ -1,36 +1,34 @@
-use crate::{Context, Error};
+use crate::{Context, Data, Error};
 use async_iterator::Iterator;
 use indicatif::ProgressIterator;
-use log::warn;
+use log::{debug, warn};
+use migration::FromValueTuple;
+use num_format::WriteFormatted;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::IntoParallelRefIterator;
 use sea_orm::ActiveValue::Set;
-use sea_orm::{ActiveModelTrait, EntityTrait, IntoActiveModel, ModelTrait, SelectColumns};
+use sea_orm::{ActiveModelTrait, DatabaseBackend, EntityTrait, IntoActiveModel, ModelTrait};
+use serenity::all::{CacheHttp, Channel, ChannelId, UserId};
 use serenity::builder::GetMessages;
-use serenity::model::channel::{GuildChannel, PrivateChannel};
+use serenity::model::channel::GuildChannel;
 use serenity::model::id::MessageId;
-use serenity::model::prelude::{GuildId, Message};
+use serenity::model::prelude::Message;
 use std::collections::HashMap;
+use std::fmt::Write;
+use std::io::Read;
 use std::iter::{IntoIterator as StdIntoIterator, Iterator as stdIter};
 use std::sync::Arc;
 
 use crate::handlers::message::handle_message;
 use crate::message_analyzer::score_message;
-use entity::prelude::{Channels, Guilds};
+use entity::prelude::Guilds;
 use tokio::time::Instant;
 
-#[allow(dead_code)]
-pub(crate) enum HistoryChannel<'a> {
-    Guild(&'a GuildChannel),
-    Private(&'a PrivateChannel),
-}
-
 struct HistoryIterator<'a> {
-    channel: &'a HistoryChannel<'a>,
+    channel: &'a GuildChannel,
     http: Arc<serenity::http::Http>,
-    last_message_id: Option<MessageId>,
-    limit: u8,
-    current: u8,
+    limit: u32,
+    current: u32,
     before: Option<u64>,
     after: Option<u64>,
     around: Option<u64>,
@@ -38,109 +36,82 @@ struct HistoryIterator<'a> {
 }
 
 async fn fill_messages(
-    channel: &HistoryChannel<'_>,
+    channel: &GuildChannel,
     http: Arc<serenity::http::Http>,
     last_message_id: Option<MessageId>,
     limit: u8,
     before: Option<u64>,
     after: Option<u64>,
     around: Option<u64>,
-) -> Result<(Vec<Message>, Option<MessageId>), Error> {
-    let mut messages = Vec::new();
-    let mut last_message_id = last_message_id;
-    let messages_gotten = match channel {
-        HistoryChannel::Private(channel) => {
-            // channel
-            //     .messages(http, |retriever| {
-            //         if let Some(last_message_id) = last_message_id {
-            //             retriever.before(last_message_id);
-            //         } else if let Some(before) = before {
-            //             retriever.before(before);
-            //         }
-            //
-            //         if let Some(after) = after {
-            //             retriever.after(after);
-            //         }
-            //
-            //         if let Some(around) = around {
-            //             retriever.around(around);
-            //         }
-            //
-            //         retriever.limit(limit)
-            //     })
-            //     .await?
-            let mut config = GetMessages::default();
-            if let Some(last_message_id) = last_message_id {
-                config = config.before(last_message_id);
-            } else if let Some(before) = before {
-                config = config.before(before);
-            }
-
-            if let Some(after) = after {
-                config = config.after(after);
-            }
-
-            if let Some(around) = around {
-                config = config.around(around);
-            }
-
-            config = config.limit(limit);
-
-            channel.messages(&http, config).await?
+) -> Result<Vec<Message>, Error> {
+    let messages_gotten = {
+        let mut config = GetMessages::default();
+        if let Some(last_message_id) = last_message_id {
+            config = config.before(last_message_id);
+            // println!(
+            //     "selecting before {} on {} ({})",
+            //     last_message_id, channel.id, channel.name
+            // )
+        } else if let Some(before) = before {
+            config = config.before(before);
         }
-        HistoryChannel::Guild(channel) => {
-            let mut config = GetMessages::default();
-            if let Some(last_message_id) = last_message_id {
-                config = config.before(last_message_id);
-            } else if let Some(before) = before {
-                config = config.before(before);
-            }
 
-            if let Some(after) = after {
-                config = config.after(after);
-            }
-
-            if let Some(around) = around {
-                config = config.around(around);
-            }
-
-            config = config.limit(limit);
-
-            channel.messages(&http, config).await?
+        debug!(
+            "selecting before {:?} on {} ({})",
+            last_message_id, channel.id, channel.name
+        );
+        if let Some(after) = after {
+            config = config.after(after);
         }
+
+        if let Some(around) = around {
+            config = config.around(around);
+        }
+
+        config = config.limit(limit);
+        channel.messages(&http, config).await?
     };
 
+    debug!(
+        "got {} messages before {:?} on {} ({})",
+        messages_gotten.len(),
+        last_message_id,
+        channel.id,
+        channel.name,
+    );
     // messages_gotten.reverse();
-
-    for message in messages_gotten {
-        last_message_id = Some(message.id);
-        messages.push(message);
-    }
-
-    Ok((messages, last_message_id))
+    Ok(messages_gotten)
 }
 
 impl HistoryIterator<'_> {
     async fn new<'a>(
-        channel: &'a HistoryChannel<'a>,
+        channel: &'a GuildChannel,
         http: Arc<serenity::http::Http>,
-        limit: u8,
+        limit: u32,
         before: Option<u64>,
         after: Option<u64>,
         around: Option<u64>,
     ) -> HistoryIterator<'a> {
-        let (messages_gotten, last_message_id) =
-            match fill_messages(channel, http.clone(), None, limit, before, after, around).await {
-                Ok((messages_gotten, last_message_id)) => (messages_gotten, last_message_id),
-                Err(e) => {
-                    warn!("failed to get messages: {:?}", e);
-                    (Vec::new(), None)
-                }
-            };
+        let messages_gotten = match fill_messages(
+            channel,
+            http.clone(),
+            None,
+            limit.min(100) as u8,
+            before,
+            after,
+            around,
+        )
+        .await
+        {
+            Ok(messages_gotten) => messages_gotten,
+            Err(e) => {
+                warn!("failed to get messages: {:?}", e);
+                Vec::new()
+            }
+        };
         HistoryIterator {
             channel,
             http,
-            last_message_id,
             limit,
             current: 0,
             before,
@@ -151,8 +122,7 @@ impl HistoryIterator<'_> {
     }
 }
 
-// #[async_trait]
-impl<'a> Iterator for HistoryIterator<'a> {
+impl<'a> async_iterator::Iterator for HistoryIterator<'a> {
     type Item = Message;
 
     async fn next(&mut self) -> Option<Message> {
@@ -167,13 +137,13 @@ impl<'a> Iterator for HistoryIterator<'a> {
         let message = self.messages.remove(0);
         self.current += 1;
 
-        if self.messages.is_empty() && self.limit - self.current != 0 && self.limit != self.current
-        {
-            let (messages_gotten, last_message_id) = fill_messages(
+        if self.messages.is_empty() && self.limit - self.current != 0 {
+            debug!("{}", self.limit - self.current);
+            let messages_gotten = fill_messages(
                 self.channel,
                 self.http.clone(),
-                self.last_message_id,
-                self.limit - self.current,
+                Some(message.id),
+                (self.limit - self.current).min(100) as u8,
                 self.before,
                 self.after,
                 self.around,
@@ -181,7 +151,6 @@ impl<'a> Iterator for HistoryIterator<'a> {
             .await
             .unwrap();
             self.messages = messages_gotten;
-            self.last_message_id = last_message_id;
         }
 
         Some(message)
@@ -213,15 +182,14 @@ pub async fn load_messages(
 
     let timer = Instant::now();
 
+    let channels = guild.channels(&ctx.http()).await?;
+    let channel_map = channels.par_iter().map(|(.., c)| c);
     let mut messages: Vec<Message> = futures::future::join_all(
-        guild
-            .channels(&ctx.http())
-            .await?
-            .par_iter()
-            .map(|(.., c)| HistoryChannel::Guild(c))
+        channel_map
+            .clone()
             .map(|c| (c, http.clone()))
             .map(async move |(channel, http)| {
-                HistoryIterator::new(&channel, http, u8::MAX, None, None, None)
+                HistoryIterator::new(channel, http, u32::MAX, None, None, None)
                     .await
                     .collect::<Vec<_>>()
                     .await
@@ -236,30 +204,57 @@ pub async fn load_messages(
     .filter(|message| !message.author.bot)
     .collect();
 
+    let mut message_log_file = std::fs::File::create("messages_recall.txt")?;
+    // let message_json_file = std::fs::File::create("messages_recall.json")?;
+
     messages.sort_unstable_by(|a, b| a.id.cmp(&b.id));
 
     let cache = ctx.serenity_context().cache.clone();
     let data = Arc::new(ctx.data());
 
-    let mut guild_scores = HashMap::new();
-    let mut guild_message_count = HashMap::new();
+    let mut guild_score = 0.;
+    let mut guild_message_count = 0;
 
     let mut channel_scores = HashMap::new();
     let mut channel_message_count = HashMap::new();
-    let channel_to_guild = Channels::find()
-        .select_column(entity::channels::Column::Snowflake)
-        .select_column(entity::channels::Column::Guild)
-        .all(&data.db)
-        .await?
-        .iter()
-        .map(|model| (model.snowflake as u64, model.guild as u64))
-        .collect::<HashMap<u64, u64>>();
 
     let mut user_scores = HashMap::new();
     let mut user_message_count = HashMap::new();
 
-    for message in messages.clone().into_iter().progress() {
-        let score = score_message(&message, &data.db).await;
+    let mut message_log = String::new();
+
+    let mut channel_id_name_map = HashMap::new();
+    for channel in channel_map.collect::<Vec<&GuildChannel>>() {
+        channel_id_name_map.insert(channel.id, channel.name.clone());
+    }
+
+    for message in messages.into_iter().progress() {
+        message_log.push_str(
+            format!(
+                "{} [#{}] [{}] {}\n",
+                message.timestamp.format("[%d-%m-%Y][%H:%M:%S]"),
+                channel_id_name_map.get(&message.channel_id).unwrap(),
+                message.author.name,
+                message.content
+            )
+            .as_str(),
+        );
+
+        let score;
+        {
+            let mut last_five = data.last_five_map.write().await;
+
+            let last_five = last_five.entry(message.author.id.clone()).or_insert(vec![]);
+
+            score = score_message(&message, &last_five).await;
+
+            last_five.push(message.content.clone());
+
+            if last_five.len() == 6 {
+                last_five.remove(0);
+            }
+            debug_assert!(last_five.len() < 6);
+        }
 
         match handle_message(
             score,
@@ -276,28 +271,8 @@ pub async fn load_messages(
         .await
         {
             Ok(_) => {
-                match message.guild_id {
-                    Some(guild_id) => {
-                        *guild_scores.entry(guild_id).or_insert(0.0) += score;
-                        *guild_message_count.entry(guild_id).or_insert(0) += 1;
-                    }
-                    None => match channel_to_guild.get(&message.channel_id.get()) {
-                        Some(guild_id) => {
-                            *guild_scores.entry(GuildId::new(*guild_id)).or_insert(0.0) += score;
-                            *guild_message_count
-                                .entry(GuildId::new(*guild_id))
-                                .or_insert(0) += 1;
-                        }
-                        None => {
-                            *guild_scores
-                                .entry(GuildId::new(guild.id.get()))
-                                .or_insert(0.0) += score;
-                            *guild_message_count
-                                .entry(GuildId::new(guild.id.get()))
-                                .or_insert(0) += 1;
-                        }
-                    },
-                };
+                guild_score += score;
+                guild_message_count += 1;
 
                 *channel_scores.entry(message.channel_id).or_insert(0.0) += score;
                 *channel_message_count.entry(message.channel_id).or_insert(0) += 1;
@@ -311,71 +286,39 @@ pub async fn load_messages(
         }
     }
 
-    let guild_score_rs = futures::future::join_all(
-        guild_scores
-            .iter()
-            .map(|(id, score)| (id, score, data.clone()))
-            .map(async move |(guild_id, score, data)| {
-                let mut a_guild = Guilds::find_by_id(guild_id.get() as i64)
-                    .one(&data.db)
-                    .await
-                    .unwrap()
-                    .unwrap()
-                    .into_active_model();
-                a_guild.score = Set(*score + a_guild.score.unwrap());
+    std::io::Write::write(&mut message_log_file, message_log.as_str().as_bytes());
 
-                a_guild.update(&data.db).await.unwrap();
+    let mut a_guild = Guilds::find_by_id(guild.id.get() as i64)
+        .one(&data.db)
+        .await
+        .unwrap()
+        .unwrap()
+        .into_active_model();
+    a_guild.score = Set(guild_score + a_guild.score.unwrap());
+    a_guild.message_count = Set(guild_message_count + a_guild.message_count.unwrap());
 
-                Ok::<(), Error>(())
-            }),
-    )
-    .await;
-
-    for guild_r in guild_score_rs {
-        guild_r?;
-    }
-
-    let guild_count_rs = futures::future::join_all(
-        guild_message_count
-            .iter()
-            .map(|(id, count)| (id, count, data.clone()))
-            .map(async move |(guild_id, count, data)| {
-                let mut a_guild = Guilds::find_by_id(guild_id.get() as i64)
-                    .one(&data.db)
-                    .await
-                    .unwrap()
-                    .unwrap()
-                    .into_active_model();
-                a_guild.message_count = Set(*count + a_guild.message_count.unwrap());
-
-                a_guild.update(&data.db).await.unwrap();
-
-                Ok::<(), Error>(())
-            }),
-    )
-    .await;
-
-    for guild_r in guild_count_rs {
-        guild_r?;
-    }
+    a_guild.update(&data.db).await?;
 
     let channel_rs = futures::future::join_all(
         channel_scores
             .iter()
             .map(|(id, score)| (id, score, data.clone()))
-            .map(async move |(channel_id, score, data)| {
-                let mut a_channel = entity::channels::Entity::find_by_id(channel_id.get() as i64)
-                    .one(&data.db)
-                    .await
-                    .unwrap()
-                    .unwrap()
-                    .into_active_model();
-                a_channel.score = Set(*score + a_channel.score.unwrap());
+            .map(
+                async move |(channel_id, score, data): (&ChannelId, &f32, Arc<&Data>)| {
+                    let mut a_channel =
+                        entity::channels::Entity::find_by_id(channel_id.get() as i64)
+                            .one(&data.db)
+                            .await
+                            .unwrap()
+                            .unwrap()
+                            .into_active_model();
+                    a_channel.score = Set(*score + a_channel.score.unwrap());
 
-                a_channel.update(&data.db).await.unwrap();
+                    a_channel.update(&data.db).await.unwrap();
 
-                Ok::<(), Error>(())
-            })
+                    Ok::<(), Error>(())
+                },
+            )
             .collect::<Vec<_>>(),
     )
     .await;
@@ -388,19 +331,22 @@ pub async fn load_messages(
         channel_message_count
             .iter()
             .map(|(id, count)| (id, count, data.clone()))
-            .map(async move |(channel_id, count, data)| {
-                let mut a_channel = entity::channels::Entity::find_by_id(channel_id.get() as i64)
-                    .one(&data.db)
-                    .await
-                    .unwrap()
-                    .unwrap()
-                    .into_active_model();
-                a_channel.message_count = Set(*count + a_channel.message_count.unwrap());
+            .map(
+                async move |(channel_id, count, data): (&ChannelId, &i32, Arc<&Data>)| {
+                    let mut a_channel =
+                        entity::channels::Entity::find_by_id(channel_id.get() as i64)
+                            .one(&data.db)
+                            .await
+                            .unwrap()
+                            .unwrap()
+                            .into_active_model();
+                    a_channel.message_count = Set(*count + a_channel.message_count.unwrap());
 
-                a_channel.update(&data.db).await.unwrap();
+                    a_channel.update(&data.db).await.unwrap();
 
-                Ok::<(), Error>(())
-            })
+                    Ok::<(), Error>(())
+                },
+            )
             .collect::<Vec<_>>(),
     )
     .await;
@@ -413,27 +359,29 @@ pub async fn load_messages(
         user_scores
             .iter()
             .map(|(id, score)| (id, score, data.clone()))
-            .map(async move |(user_id, score, data)| {
-                loop {
-                    match entity::users::Entity::find_by_id(user_id.get() as i64)
-                        .one(&data.db)
-                        .await
-                    {
-                        Ok(Some(user)) => {
-                            let mut a_user = user.into_active_model();
-                            a_user.score = Set(*score + a_user.score.unwrap());
+            .map(
+                async move |(user_id, score, data): (&UserId, &f32, Arc<&Data>)| {
+                    loop {
+                        match entity::users::Entity::find_by_id(user_id.get() as i64)
+                            .one(&data.db)
+                            .await
+                        {
+                            Ok(Some(user)) => {
+                                let mut a_user = user.into_active_model();
+                                a_user.score = Set(*score + a_user.score.unwrap());
 
-                            a_user.update(&data.db).await.unwrap();
+                                a_user.update(&data.db).await.unwrap();
 
-                            break;
+                                break;
+                            }
+                            Err(_) => {}
+                            _ => {}
                         }
-                        Err(_) => {}
-                        _ => {}
                     }
-                }
 
-                Ok::<(), Error>(())
-            })
+                    Ok::<(), Error>(())
+                },
+            )
             .collect::<Vec<_>>(),
     )
     .await;
@@ -446,26 +394,28 @@ pub async fn load_messages(
         user_message_count
             .iter()
             .map(|(id, count)| (id, count, data.clone()))
-            .map(async move |(user_id, count, data)| {
-                loop {
-                    match entity::users::Entity::find_by_id(user_id.get() as i64)
-                        .one(&data.db)
-                        .await
-                    {
-                        Ok(Some(user)) => {
-                            let mut a_user = user.into_active_model();
-                            a_user.message_count = Set(*count + a_user.message_count.unwrap());
+            .map(
+                async move |(user_id, count, data): (&UserId, &i32, Arc<&Data>)| {
+                    loop {
+                        match entity::users::Entity::find_by_id(user_id.get() as i64)
+                            .one(&data.db)
+                            .await
+                        {
+                            Ok(Some(user)) => {
+                                let mut a_user = user.into_active_model();
+                                a_user.message_count = Set(*count + a_user.message_count.unwrap());
 
-                            a_user.update(&data.db).await.unwrap();
+                                a_user.update(&data.db).await.unwrap();
 
-                            break;
+                                break;
+                            }
+                            Err(_) => {}
+                            _ => {}
                         }
-                        Err(_) => {}
-                        _ => {}
                     }
-                }
-                Ok::<(), Error>(())
-            })
+                    Ok::<(), Error>(())
+                },
+            )
             .collect::<Vec<_>>(),
     )
     .await;
@@ -478,7 +428,7 @@ pub async fn load_messages(
 
     ctx.reply(format!(
         "got {} messages in {:?}",
-        messages.len(),
+        guild_message_count,
         timer.elapsed()
     ))
     .await?;

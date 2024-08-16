@@ -69,4 +69,3 @@ pub fn setup_logging() -> Result<(), Error> {
 
     Ok(())
 }
-

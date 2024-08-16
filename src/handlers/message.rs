@@ -16,7 +16,9 @@ use log::{error, trace, warn};
 use crate::serenity::cache::Cache;
 use crate::serenity::model::id::GuildId;
 use poise::serenity_prelude as serenity;
-use sea_orm::{DatabaseConnection, Set, TryIntoModel};
+use sea_orm::{
+    prelude::*, DatabaseConnection, QueryOrder, QuerySelect, SelectColumns, Set, TryIntoModel,
+};
 
 use std::ops::Deref;
 use std::sync::Arc;
@@ -41,6 +43,7 @@ pub async fn handle_message(
     user_in_db: &RwLock<HashSet<u64>>,
 ) -> Result<(), Error> {
     let _timer = Instant::now();
+    trace!("Message ({}): {}", msg.id, msg.content);
 
     if MessageEntity::find_by_id(msg.id.get() as i64)
         .one(&data.db)
@@ -67,45 +70,33 @@ pub async fn handle_message(
     let guild = if !guild_in_db.read().await.contains(&guild_id) {
         if msg.guild(cache).is_some() {
             name = msg.guild(cache).map(|x| x.name.clone());
-            None
-        } else {
-            match Guilds::find_by_id(guild_id as i64).one(&data.db).await? {
-                Some(g) => {
-                    guild_in_db.write().await.insert(guild_id);
-                    Some(g)
-                }
-                None => {
-                    let d_guild = http.get_guild(GuildId::new(guild_id)).await?;
-                    let guild = guilds::ActiveModel {
-                        snowflake: Set(guild_id as i64),
-                        name: Set(d_guild.name),
-                        score: Set(0.),
-                        message_count: Set(0),
-                        user_count: Set(0),
-                    };
-                    guild_in_db.write().await.insert(guild_id);
-                    Some(guild.clone().insert(&data.db).await?)
-                }
+        }
+        match Guilds::find_by_id(guild_id as i64).one(&data.db).await? {
+            Some(g) => {
+                guild_in_db.write().await.insert(guild_id);
+                Some(g)
+            }
+            None => {
+                let d_guild = http.get_guild(GuildId::new(guild_id)).await?;
+                let guild = guilds::ActiveModel {
+                    snowflake: Set(guild_id as i64),
+                    name: Set(d_guild.name),
+                    score: Set(0.),
+                    message_count: Set(0),
+                    user_count: Set(0),
+                };
+                guild_in_db.write().await.insert(guild_id);
+                Some(guild.clone().insert(&data.db).await?)
             }
         }
-    } else if log {
-        Some(
-            match Guilds::find_by_id(guild_id as i64).one(&data.db).await? {
-                Some(g) => g,
-                None => {
-                    error!("Guild not found in db");
-                    return Err(Error::from("Guild not found in db"));
-                }
-            },
-        )
     } else {
         None
     };
 
-    // see https://github.com/rust-lang/rust/issues/87309
-    if let Some(name) = name {
-        guild_by_id(&data, guild_in_db, guild_id, name).await?;
-    }
+    // // see https://github.com/rust-lang/rust/issues/87309
+    // if let Some(name) = name {
+    //     guild_by_id(&data, guild_in_db, guild_id, name).await?;
+    // }
 
     let channel_name = if !channel_in_db.read().await.contains(&msg.channel_id.get()) {
         match ChannelEntity::find_by_id(msg.channel_id.get() as i64)
@@ -135,10 +126,7 @@ pub async fn handle_message(
             }
         }
     } else {
-        match msg.channel((cache, http.deref())).await? {
-            serenity::Channel::Guild(c) => c.name,
-            _ => "DM".to_string(),
-        }
+        "".to_owned()
     };
 
     if log && guild.is_some() {
@@ -182,7 +170,7 @@ pub async fn handle_message(
         score: Set(score),
         user: Set(msg.author.id.get() as i64),
         channel: Set(msg.channel_id.get() as i64),
-        replys_to: { Set(find_reply_to(&data.db, msg).await?) },
+        replys_to: { Set(find_reply_to(&data.db, msg, &data).await?) },
         timestamp: Set(msg.timestamp.naive_utc()),
     };
 
@@ -220,7 +208,11 @@ async fn guild_by_id(
 }
 
 #[async_recursion]
-async fn find_reply_to(db: &DatabaseConnection, msg: &Message) -> Result<Option<i64>, Error> {
+async fn find_reply_to(
+    db: &DatabaseConnection,
+    msg: &Message,
+    data: &Data,
+) -> Result<Option<i64>, Error> {
     let _timer = Instant::now();
     let reply_to = match &msg.referenced_message {
         Some(ref_msg) => {
@@ -230,13 +222,39 @@ async fn find_reply_to(db: &DatabaseConnection, msg: &Message) -> Result<Option<
             match reply_to {
                 Some(reply_to) => Some(reply_to.snowflake),
                 None => {
+                    let mut last_five = data.last_five_map.write().await;
+
+                    let last_five = last_five.entry(ref_msg.author.id.clone()).or_insert(
+                        entity::prelude::Messages::find()
+                            .filter(entity::messages::Column::User.eq(ref_msg.author.id.get()))
+                            .order_by_desc(entity::messages::Column::Snowflake)
+                            .select_only()
+                            .select_column(entity::messages::Column::Content)
+                            .limit(5)
+                            .all(&data.db)
+                            .await
+                            .expect("Error fetching recent messages")
+                            .into_iter()
+                            .map(|m| m.content)
+                            .collect(),
+                    );
+
+                    let score = score_message(ref_msg, last_five).await;
+
+                    last_five.push(ref_msg.content.clone());
+
+                    if last_five.len() == 6 {
+                        last_five.remove(0);
+                    }
+                    debug_assert!(last_five.len() < 6);
+
                     let reply_to = MessageActiveModel {
                         snowflake: Set(ref_msg.id.get() as i64),
                         content: Set(ref_msg.content.clone()),
-                        score: Set(score_message(ref_msg, db).await),
+                        score: Set(score),
                         user: Set(ref_msg.author.id.get() as i64),
                         channel: Set(ref_msg.channel_id.get() as i64),
-                        replys_to: Set(find_reply_to(db, ref_msg).await?),
+                        replys_to: Set(find_reply_to(db, ref_msg, data).await?),
                         timestamp: Set(ref_msg.timestamp.naive_utc()),
                     };
                     reply_to.insert(db).await?;

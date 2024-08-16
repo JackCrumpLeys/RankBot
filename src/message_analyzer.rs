@@ -1,5 +1,3 @@
-use entity::prelude::Messages;
-use sea_orm::{entity::prelude::*, DatabaseConnection, QueryOrder, QuerySelect};
 use serenity::model::prelude::Message;
 use std::collections::HashMap;
 
@@ -15,20 +13,11 @@ fn count_words(message: &str) -> (u32, u32) {
 }
 
 /// Score discord messages based on how constructive they are
-pub async fn score_message(message: &Message, db: &DatabaseConnection) -> f32 {
-    // Fetch the last 5 messages from this user
-    let recent_messages = Messages::find()
-        .filter(entity::messages::Column::User.eq(message.author.id.get()))
-        .order_by_desc(entity::messages::Column::Snowflake)
-        .limit(5)
-        .all(db)
-        .await
-        .expect("Error fetching recent messages");
-
+pub async fn score_message(message: &Message, recent_messages: &Vec<String>) -> f32 {
     // If there's any repetition in the recent messages, the score is lowered
     if recent_messages
         .iter()
-        .any(|recent_message| recent_message.content == message.content)
+        .any(|recent_message| recent_message == &message.content)
     {
         return 0.;
     }

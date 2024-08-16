@@ -12,7 +12,7 @@ members = [".", "entity", "migration"]
 [dependencies]
 entity = { path = "entity" }
 migration = { path = "migration" } # depends on your needs
-serenity = { version= "0.12.0", features = [ "builder",
+serenity = { version= "0.12.1", features = [ "builder",
     "cache",
     "chrono",
     "client",
@@ -21,17 +21,18 @@ serenity = { version= "0.12.0", features = [ "builder",
     "model",
     "utils",
     "rustls_backend"], default-features = false }
+serenity-self = {package = "serenity", git = "https://github.com/nshout/serenity-self", features = ["framework", "standard_framework"]}
 env-file-reader = "0.3.0"
-tokio = { version = "1.33.0", features = ["full"] }
+tokio = { version = "1.36.0", features = ["full"] }
 poise = "0.6.1"
-log = "0.4.20"
+log = "0.4.21"
 fern = "0.6.2"
-chrono = "0.4.31"
-lru = "0.12.0"
-sea-orm = { version = "0.12.3", features = [ "sqlx-postgres", "runtime-tokio-rustls", "macros" ] }
-async-recursion = "1.0.5"
-rayon = "1.8.0"
-futures = "0.3.28"
-indicatif = { version = "0.17.7", features = ["tokio"] }
+chrono = "0.4.35"
+lru = "0.12.3"
+sea-orm = { version = "1.0.0", features = [ "sqlx-postgres", "runtime-tokio-rustls", "macros" ] }
+async-recursion = "1.1.0"
+rayon = "1.10.0"
+futures = "0.3.30"
+indicatif = { version = "0.17.8", features = ["tokio"] }
 async-iterator = "2.2.0"
 num-format = "0.4.4"
